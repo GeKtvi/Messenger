@@ -1,8 +1,11 @@
-# Messenger
+# Pingo
 
 A learning project: a simple messenger built as a set of microservices.
 
 For now it is a single public chat with no users — anyone can post anonymously.
+
+Architecture and convention decisions, with their reasons, are recorded in
+[docs/decision-log.md](docs/decision-log.md).
 
 ## Homework stages
 
@@ -30,12 +33,13 @@ To view a stage's code: `git checkout 01` (or browse the tag on GitHub).
 ## Structure
 
 ```
-Messenger.sln
+Pingo.slnx
 ├── Services/
 │   └── Message/
-│       └── Messenger.Message.Api   # ASP.NET Core minimal API + EF Core (PostgreSQL)
+│       ├── Pingo.Messages.Api      # API layer: ASP.NET Core controllers, request/response contracts
+│       └── Pingo.Messages          # Business layer: IMessageService, EF Core (PostgreSQL), entities
 └── Frontend/
-    └── Messenger.Frontend          # Blazor WebAssembly + MudBlazor
+    └── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
 ```
 
 ## Message service API
@@ -46,7 +50,7 @@ Messenger.sln
 | POST   | `/api/messages` | Sends a message (`{ "text": "..." }`) |
 
 Messages are stored in PostgreSQL. The schema is created automatically on first start.
-Example requests are in `Messenger.Message.Api.http`.
+Example requests are in `Pingo.Messages.Api.http`.
 
 ## Running locally
 
@@ -62,15 +66,15 @@ docker compose up -d
 Then start both projects (in separate terminals):
 
 ```bash
-dotnet run --project Services/Message/Messenger.Message.Api --launch-profile http
+dotnet run --project Services/Message/Pingo.Messages.Api --launch-profile http
 ```
 
 ```bash
-dotnet run --project Frontend/Messenger.Frontend --launch-profile http
+dotnet run --project Frontend/Pingo.Frontend --launch-profile http
 ```
 
 Then open http://localhost:5221.
 
 - API: http://localhost:5230 (OpenAPI document at `/openapi/v1.json` in Development)
-- The frontend reads the API address from `Frontend/Messenger.Frontend/wwwroot/appsettings.json`.
+- The frontend reads the API address from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.

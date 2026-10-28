@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
-using Messenger.Frontend;
-using Messenger.Frontend.Services;
+using Pingo.Frontend;
+using Pingo.Frontend.Services;
 using MudBlazor.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);

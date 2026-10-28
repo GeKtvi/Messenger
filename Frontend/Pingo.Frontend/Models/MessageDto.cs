@@ -1,4 +1,4 @@
-namespace Messenger.Frontend.Models;
+namespace Pingo.Frontend.Models;
 
 public record MessageDto(Guid Id, string Text, DateTimeOffset SentAt);
 

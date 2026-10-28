@@ -1,15 +1,13 @@
-using Messenger.Message.Api.Data;
-using Messenger.Message.Api.Endpoints;
-using Microsoft.EntityFrameworkCore;
+using Pingo.Messages;
 
 const string FrontendCorsPolicy = "Frontend";
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-builder.Services.AddDbContext<MessageDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Messages")));
+builder.Services.AddMessages(builder.Configuration.GetConnectionString("Messages"));
 
 builder.Services.AddCors(options =>
 {
@@ -22,11 +20,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Simple for now: create the schema on startup. Switch to migrations once the model settles.
-using (var scope = app.Services.CreateScope())
-{
-    scope.ServiceProvider.GetRequiredService<MessageDbContext>().Database.EnsureCreated();
-}
+await app.Services.EnsureMessagesDatabaseCreatedAsync();
 
 if (app.Environment.IsDevelopment())
 {
@@ -35,6 +29,6 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(FrontendCorsPolicy);
 
-app.MapMessageEndpoints();
+app.MapControllers();
 
 app.Run();

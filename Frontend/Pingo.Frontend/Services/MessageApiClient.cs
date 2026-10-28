@@ -1,7 +1,7 @@
 using System.Net.Http.Json;
-using Messenger.Frontend.Models;
+using Pingo.Frontend.Models;
 
-namespace Messenger.Frontend.Services;
+namespace Pingo.Frontend.Services;
 
 public class MessageApiClient(HttpClient http)
 {
