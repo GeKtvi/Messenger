@@ -1,6 +1,7 @@
 using Messenger.Message.Api.Contracts;
 using Messenger.Message.Api.Data;
 using Messenger.Message.Api.Entities;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
 namespace Messenger.Message.Api.Endpoints;
@@ -17,29 +18,30 @@ public static class MessageEndpoints
         return app;
     }
 
-    private static async Task<IResult> GetAll(MessageDbContext db, CancellationToken ct)
+    // Scaffold only: loads and returns every message with no paging or limit.
+    // Fine for the first stage; replace with a paged/cursor-based query before real use.
+    private static async Task<Ok<List<MessageResponse>>> GetAll(MessageDbContext db, CancellationToken ct)
     {
-        // SQLite can't ORDER BY DateTimeOffset server-side, so sort after loading.
-        var messages = await db.Messages.AsNoTracking().ToListAsync(ct);
-
-        var response = messages
+        var response = await db.Messages
+            .AsNoTracking()
             .OrderBy(m => m.SentAt)
-            .Select(m => new MessageResponse(m.Id, m.Text, m.SentAt));
+            .Select(m => new MessageResponse(m.Id, m.Text, m.SentAt))
+            .ToListAsync(ct);
 
-        return Results.Ok(response);
+        return TypedResults.Ok(response);
     }
 
-    private static async Task<IResult> Send(SendMessageRequest request, MessageDbContext db, CancellationToken ct)
+    private static async Task<Results<Created<MessageResponse>, ValidationProblem>> Send(SendMessageRequest request, MessageDbContext db, CancellationToken ct)
     {
         var text = request.Text?.Trim();
         if (string.IsNullOrEmpty(text))
-            return Results.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 [nameof(request.Text)] = ["Message text is required."]
             });
 
         if (text.Length > MessageDbContext.MaxTextLength)
-            return Results.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 [nameof(request.Text)] = [$"Message text must be at most {MessageDbContext.MaxTextLength} characters."]
             });
@@ -55,6 +57,6 @@ public static class MessageEndpoints
         await db.SaveChangesAsync(ct);
 
         var response = new MessageResponse(message.Id, message.Text, message.SentAt);
-        return Results.Created($"/api/messages/{message.Id}", response);
+        return TypedResults.Created($"/api/messages/{message.Id}", response);
     }
 }

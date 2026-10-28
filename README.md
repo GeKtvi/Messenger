@@ -33,7 +33,7 @@ To view a stage's code: `git checkout 01` (or browse the tag on GitHub).
 Messenger.sln
 ├── Services/
 │   └── Message/
-│       └── Messenger.Message.Api   # ASP.NET Core minimal API + EF Core (SQLite)
+│       └── Messenger.Message.Api   # ASP.NET Core minimal API + EF Core (PostgreSQL)
 └── Frontend/
     └── Messenger.Frontend          # Blazor WebAssembly + MudBlazor
 ```
@@ -45,12 +45,21 @@ Messenger.sln
 | GET    | `/api/messages` | Returns all messages   |
 | POST   | `/api/messages` | Sends a message (`{ "text": "..." }`) |
 
-The SQLite database (`messages.db`) is created automatically on first start.
+Messages are stored in PostgreSQL. The schema is created automatically on first start.
 Example requests are in `Messenger.Message.Api.http`.
 
 ## Running locally
 
-Requires the .NET 10 SDK. Start both projects (in separate terminals):
+Requires the .NET 10 SDK and Docker.
+
+Start PostgreSQL (local dev credentials are in `docker-compose.yml` and the API's
+`appsettings.Development.json`):
+
+```bash
+docker compose up -d
+```
+
+Then start both projects (in separate terminals):
 
 ```bash
 dotnet run --project Services/Message/Messenger.Message.Api --launch-profile http

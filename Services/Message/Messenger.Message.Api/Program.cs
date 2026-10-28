@@ -9,7 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 
 builder.Services.AddDbContext<MessageDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("Messages")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Messages")));
 
 builder.Services.AddCors(options =>
 {
