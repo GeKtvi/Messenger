@@ -49,8 +49,22 @@ Pingo.slnx
 | GET    | `/api/messages` | Returns all messages   |
 | POST   | `/api/messages` | Sends a message (`{ "text": "..." }`) |
 
-Messages are stored in PostgreSQL. The schema is created automatically on first start.
-Example requests are in `Pingo.Messages.Api.http`.
+Each message has a `sentAt` time and an `updatedAt` time, which is `null` until the message is edited.
+
+Messages are stored in PostgreSQL. The schema is managed with EF Core migrations, which the API
+applies automatically on startup. Example requests are in `Pingo.Messages.Api.http`.
+
+### Changing the database schema
+
+After changing an entity, add a migration (the `dotnet-ef` tool is pinned in `dotnet-tools.json`):
+
+```bash
+dotnet tool restore
+```
+
+```bash
+dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --output-dir Data/Migrations
+```
 
 ## Running locally
 

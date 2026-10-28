@@ -45,6 +45,10 @@ else
                 <MudText Typo="Typo.body1">@message.Text</MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
                     @message.SentAt.ToLocalTime().ToString("g")
+                    @if (message.UpdatedAt is { } updatedAt)
+                    {
+                        <span title="@updatedAt.ToLocalTime().ToString("g")"> · edited</span>
+                    }
                 </MudText>
             </MudListItem>
         }

@@ -18,10 +18,16 @@ public static class MessagesServiceCollectionExtensions
         return services;
     }
 
-    // Simple for now: create the schema on startup. Switch to migrations once the model settles.
-    public static async Task EnsureMessagesDatabaseCreatedAsync(this IServiceProvider services)
+    // Applies pending EF Core migrations on startup. Non-relational providers (the in-memory
+    // database used by tests) don't support migrations, so they get the schema created directly.
+    public static async Task MigrateMessagesDatabaseAsync(this IServiceProvider services)
     {
         using var scope = services.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<MessageDbContext>().Database.EnsureCreatedAsync();
+        var database = scope.ServiceProvider.GetRequiredService<MessageDbContext>().Database;
+
+        if (database.IsRelational())
+            await database.MigrateAsync();
+        else
+            await database.EnsureCreatedAsync();
     }
 }

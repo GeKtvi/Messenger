@@ -13,7 +13,7 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
         await db.Messages
             .AsNoTracking()
             .OrderBy(m => m.SentAt)
-            .Select(m => new Message(m.Id, m.Text, m.SentAt))
+            .Select(m => new Message(m.Id, m.Text, m.SentAt, m.UpdatedAt))
             .ToListAsync(ct);
 
     public async Task<Message> SendAsync(string text, CancellationToken ct = default)
@@ -32,6 +32,6 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
         db.Messages.Add(message);
         await db.SaveChangesAsync(ct);
 
-        return new Message(message.Id, message.Text, message.SentAt);
+        return new Message(message.Id, message.Text, message.SentAt, message.UpdatedAt);
     }
 }

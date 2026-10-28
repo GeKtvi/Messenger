@@ -11,4 +11,4 @@ public class SendMessageRequest
     public string Text { get; init; } = string.Empty;
 }
 
-public record MessageResponse(Guid Id, string Text, DateTimeOffset SentAt);
+public record MessageResponse(Guid Id, string Text, DateTimeOffset SentAt, DateTimeOffset? UpdatedAt);

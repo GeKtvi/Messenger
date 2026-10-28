@@ -70,7 +70,7 @@ in SQL, so messages were sorted in memory.
 
 - **Date:** 2026-10-28
 - **Stage:** 01
-- **Status:** Accepted
+- **Status:** Superseded by D-021
 
 **Context:** The model is tiny and changing quickly.
 
@@ -314,3 +314,42 @@ string) and keep the validation attributes on the property.
 **Consequences:** New optional fields are just new properties, and existing clients keep working.
 Missing, null and blank text all produce the same "Message text is required." error. Unknown JSON
 fields are ignored.
+
+## D-021: Manage the schema with EF Core migrations
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** Adding the edit time is the first model change. `EnsureCreated` (D-004) cannot add a
+column to an existing table, and dropping the database would lose its messages.
+
+**Decision:** Use EF Core migrations, stored in `Services/Message/Pingo.Messages/Data/Migrations`.
+The API applies pending migrations on startup (`MigrateMessagesDatabaseAsync`). Non-relational
+providers, such as the in-memory database for tests, fall back to `EnsureCreated`. `dotnet-ef` is a
+local tool pinned in `dotnet-tools.json`, and `Microsoft.EntityFrameworkCore.Design` is a build-only
+reference in the API project.
+
+The existing database was baselined: the `InitialCreate` migration was checked against the live
+table and recorded in `__EFMigrationsHistory` by hand, so only `AddMessageUpdatedAt` ran against it.
+
+**Consequences:** Every model change now needs a migration
+(`dotnet ef migrations add <Name> --project Services/Message/Pingo.Messages --startup-project
+Services/Message/Pingo.Messages.Api --output-dir Data/Migrations`). Migrating on startup is fine for
+one instance; with several instances, migrations should run as a separate deployment step.
+
+## D-022: Track the edit time as a nullable `UpdatedAt`
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** Stage 02 asks to store both the send time and the last edit time, with null when the
+message was never edited.
+
+**Decision:** Add `DateTimeOffset? UpdatedAt` to the entity, business model, API response and
+frontend DTO, next to the existing `SentAt`. It stays null until an edit sets it (step 5). The UI
+shows "· edited", with the edit time on hover, when it's set.
+
+**Consequences:** Clients can tell edited messages apart without a separate flag. `SentAt` remains
+the sort key, so edits don't reorder the chat.

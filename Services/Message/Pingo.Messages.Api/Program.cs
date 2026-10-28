@@ -20,7 +20,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-await app.Services.EnsureMessagesDatabaseCreatedAsync();
+await app.Services.MigrateMessagesDatabaseAsync();
 
 if (app.Environment.IsDevelopment())
 {

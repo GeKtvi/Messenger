@@ -28,5 +28,5 @@ public class MessagesController(IMessageService messages) : ControllerBase
     }
 
     private static MessageResponse ToResponse(Message message) =>
-        new(message.Id, message.Text, message.SentAt);
+        new(message.Id, message.Text, message.SentAt, message.UpdatedAt);
 }
