@@ -1,11 +1,14 @@
 using System.ComponentModel.DataAnnotations;
-using Pingo.Messages;
 
 namespace Pingo.Messages.Api.Contracts;
 
-public record SendMessageRequest(
+// A class with properties (not a bare string or a positional record) so new optional
+// fields can be added later without breaking existing clients.
+public class SendMessageRequest
+{
     [Required(ErrorMessage = "Message text is required.")]
     [MaxLength(MessageLimits.MaxTextLength, ErrorMessage = "Message text must be at most {1} characters.")]
-    string Text);
+    public string Text { get; init; } = string.Empty;
+}
 
 public record MessageResponse(Guid Id, string Text, DateTimeOffset SentAt);

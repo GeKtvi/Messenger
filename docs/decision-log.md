@@ -297,3 +297,20 @@ solution items: `README.md` and `CLAUDE.md` under "Solution Items", the decision
 **Consequences:** The solution file is short and readable in diffs. Older tooling that only
 understands `.sln` can't open it. New Markdown docs must be added to `Pingo.slnx` by hand to show up
 in the IDE.
+
+## D-020: Send request is a class with properties
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** Stage 02 asks that the send action accept a dedicated class with a text property, not a
+string or the message model, so more parameters can be added later. `SendMessageRequest` was a
+positional record, so each new field would have become another constructor parameter.
+
+**Decision:** Make `SendMessageRequest` a class with an `init` `Text` property (defaulting to an empty
+string) and keep the validation attributes on the property.
+
+**Consequences:** New optional fields are just new properties, and existing clients keep working.
+Missing, null and blank text all produce the same "Message text is required." error. Unknown JSON
+fields are ignored.
