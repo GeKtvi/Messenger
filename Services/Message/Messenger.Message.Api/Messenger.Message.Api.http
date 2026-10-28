@@ -1,0 +1,13 @@
+@Host = http://localhost:5230
+
+GET {{Host}}/api/messages
+Accept: application/json
+
+###
+
+POST {{Host}}/api/messages
+Content-Type: application/json
+
+{
+  "text": "Hello from the .http file!"
+}

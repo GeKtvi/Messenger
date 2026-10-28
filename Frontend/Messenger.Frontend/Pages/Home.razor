@@ -1,0 +1,95 @@
+@page "/"
+@inject MessageApiClient MessageApi
+@inject ISnackbar Snackbar
+
+<PageTitle>Messenger</PageTitle>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2">
+    <form @onsubmit="SendAsync">
+        <MudStack Row AlignItems="AlignItems.Center">
+            <MudTextField T="string"
+                          @bind-Value="_text"
+                          Label="Message"
+                          Placeholder="Write something..."
+                          Variant="Variant.Outlined"
+                          Immediate
+                          MaxLength="2000"
+                          Disabled="_sending" />
+            <MudButton ButtonType="ButtonType.Submit"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       EndIcon="@Icons.Material.Filled.Send"
+                       Disabled="@(_sending || string.IsNullOrWhiteSpace(_text))">
+                Send
+            </MudButton>
+        </MudStack>
+    </form>
+</MudPaper>
+
+@if (_messages is null)
+{
+    <MudProgressLinear Indeterminate Color="Color.Primary" />
+}
+else if (_messages.Count == 0)
+{
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">
+        No messages yet. Be the first!
+    </MudText>
+}
+else
+{
+    <MudList T="MessageDto" Dense>
+        @foreach (var message in _messages)
+        {
+            <MudListItem T="MessageDto" Icon="@Icons.Material.Filled.ChatBubbleOutline">
+                <MudText Typo="Typo.body1">@message.Text</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @message.SentAt.ToLocalTime().ToString("g")
+                </MudText>
+            </MudListItem>
+        }
+    </MudList>
+}
+
+@code {
+    private List<MessageDto>? _messages;
+    private string _text = string.Empty;
+    private bool _sending;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _messages = [.. await MessageApi.GetAllAsync()];
+        }
+        catch (HttpRequestException ex)
+        {
+            _messages = [];
+            Snackbar.Add($"Could not load messages: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (_sending || string.IsNullOrWhiteSpace(_text))
+            return;
+
+        _sending = true;
+        try
+        {
+            await MessageApi.SendAsync(_text);
+            _text = string.Empty;
+            await LoadAsync();
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Could not send message: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}
