@@ -15,6 +15,7 @@ two digits starting at `01` (`01`, `02`, `03`, ...).
 | Tag  | Stage |
 |------|-------|
 | `01` | Message service (send/list, EF Core) + Blazor WASM/MudBlazor frontend |
+| `02` | PostgreSQL, API/business layers, idempotent PUT with edit time, pending messages in the UI, component tests |
 
 To finish a stage:
 
@@ -36,8 +37,9 @@ To view a stage's code: `git checkout 01` (or browse the tag on GitHub).
 Pingo.slnx
 ├── Services/
 │   └── Message/
-│       ├── Pingo.Messages.Api      # API layer: ASP.NET Core controllers, request/response contracts
-│       └── Pingo.Messages          # Business layer: IMessageService, EF Core (PostgreSQL), entities
+│       ├── Pingo.Messages.Api              # API layer: ASP.NET Core controllers, request/response contracts
+│       ├── Pingo.Messages                  # Business layer: IMessageService, EF Core (PostgreSQL), entities
+│       └── Pingo.Messages.ComponentTests   # Component tests: the whole service over HTTP, in-memory DB
 └── Frontend/
     └── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
 ```
@@ -83,6 +85,33 @@ The UI sends messages the way most messengers do:
 - Pending messages are kept in the browser's `localStorage` (`pingo.outbox`), so they survive a
   reload and are resent automatically when the page opens. Each one keeps its client-generated id,
   so resending never creates a duplicate.
+
+## Tests
+
+```bash
+dotnet test Pingo.slnx
+```
+
+`Pingo.Messages.ComponentTests` starts the real Message service in memory with
+`WebApplicationFactory` and talks to it over HTTP (xUnit, FluentAssertions):
+
+- The app starts once per test class (`IClassFixture`), and the database is emptied before each test.
+- The clock is a `FakeTimeProvider`, so send and edit times can be checked exactly.
+
+| Test class | Database | Covers |
+|---|---|---|
+| `MessagesApiTests` | EF Core in-memory | Listing, sending, ordering, editing, trimming, length limit, validation errors |
+| `MessagesIdempotencyTests` | EF Core in-memory | Repeated requests, repeated and multiple edits, whitespace, stale retries |
+| `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins |
+| `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
+| `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
+
+The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
+every insert until all requests have reached it, then releases them together. To skip them:
+
+```bash
+dotnet test Pingo.slnx --filter "Category!=Docker"
+```
 
 ## Running locally
 

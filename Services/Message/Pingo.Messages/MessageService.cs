@@ -14,6 +14,7 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
         await db.Messages
             .AsNoTracking()
             .OrderBy(m => m.SentAt)
+            .ThenBy(m => m.Id)
             .Select(m => new Message(m.Id, m.Text, m.SentAt, m.UpdatedAt))
             .ToListAsync(ct);
 
@@ -28,7 +29,7 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
         var message = await db.Messages.FindAsync([id], ct);
         if (message is null)
         {
-            message = new MessageEntity { Id = id, Text = text, SentAt = time.GetUtcNow() };
+            message = new MessageEntity { Id = id, Text = text, SentAt = Now() };
             db.Messages.Add(message);
             try
             {
@@ -48,11 +49,19 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
         if (message.Text != text)
         {
             message.Text = text;
-            message.UpdatedAt = time.GetUtcNow();
+            message.UpdatedAt = Now();
             await db.SaveChangesAsync(ct);
         }
 
         return new SendMessageResult(ToModel(message), Created: false);
+    }
+
+    // PostgreSQL stores times to the microsecond. Rounding down here keeps the response to a send
+    // identical to what later reads of the same message return.
+    private DateTimeOffset Now()
+    {
+        var now = time.GetUtcNow();
+        return now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond));
     }
 
     private static Message ToModel(MessageEntity message) =>

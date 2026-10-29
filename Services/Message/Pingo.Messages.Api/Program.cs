@@ -32,3 +32,6 @@ app.UseCors(FrontendCorsPolicy);
 app.MapControllers();
 
 app.Run();
+
+// Lets component tests start the app with WebApplicationFactory<Program>.
+public partial class Program;

@@ -7,7 +7,7 @@ namespace Pingo.Messages.Api.Contracts;
 public class SendMessageRequest
 {
     [Required(ErrorMessage = "Message text is required.")]
-    [MaxLength(MessageLimits.MaxTextLength, ErrorMessage = "Message text must be at most {1} characters.")]
+    [TrimmedMaxLength(MessageLimits.MaxTextLength, ErrorMessage = "Message text must be at most {1} characters.")]
     public string Text { get; init; } = string.Empty;
 }
 

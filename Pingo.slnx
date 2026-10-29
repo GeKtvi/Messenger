@@ -12,6 +12,7 @@
   <Folder Name="/Services/" />
   <Folder Name="/Services/Message/">
     <Project Path="Services/Message/Pingo.Messages.Api/Pingo.Messages.Api.csproj" />
+    <Project Path="Services/Message/Pingo.Messages.ComponentTests/Pingo.Messages.ComponentTests.csproj" />
     <Project Path="Services/Message/Pingo.Messages/Pingo.Messages.csproj" />
   </Folder>
 </Solution>

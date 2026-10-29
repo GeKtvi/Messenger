@@ -436,3 +436,109 @@ outbox (D-025) by hand. That testing is done.
 
 **Consequences:** The API has no test-only code paths. To slow sends down again, use the browser's
 network throttling, or restore the middleware from git history (commit with D-024).
+
+## D-027: Component tests with `WebApplicationFactory` and an in-memory database
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** Stage 02 asks for component tests in a new `Pingo.Messages.ComponentTests` project using
+xUnit, `Microsoft.AspNetCore.Mvc.Testing` and FluentAssertions. The service starts once through an
+`IClassFixture`, the database is replaced with an in-memory one, and it's emptied before each test.
+
+**Decision:**
+
+- `MessagesApiFactory : WebApplicationFactory<Program>` is the class fixture. It runs the app in the
+  `Testing` environment, swaps PostgreSQL for the EF Core in-memory provider (removing both
+  `DbContextOptions<MessageDbContext>` and EF Core 9+'s `IDbContextOptionsConfiguration`), and
+  replaces `TimeProvider` with a `FakeTimeProvider`.
+- Each test class gets its own in-memory database name. Each test empties the database through
+  `IAsyncLifetime.InitializeAsync` (`EnsureDeleted` + `EnsureCreated`).
+- The API's `Program` is exposed with `public partial class Program;`. `Pingo.Messages` grants
+  `InternalsVisibleTo` only to the test project, so it can reach `MessageDbContext`.
+- FluentAssertions is pinned to 7.x: 8.x moved to a paid licence for commercial use, while 7.x is
+  Apache 2.0.
+- Tests cover the four required scenarios plus an identical repeat (no edit) and blank text (400).
+
+**Consequences:** The tests need no Docker and run in under a second. Deliberately breaking the
+ordering and the idempotency logic made the matching tests fail. The in-memory provider isn't a real
+database: it doesn't enforce SQL constraints or raise PostgreSQL errors, so the duplicate-insert
+fallback (D-023) and migrations are still untested. Testcontainers with a real PostgreSQL would
+cover those.
+
+## D-028: Concurrency tests on real PostgreSQL with a forced race
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** D-023's fallback for two requests creating the same id at once had never run: manual
+tests never produced an overlap, and the in-memory test database (D-027) can't raise PostgreSQL's
+duplicate-key error.
+
+**Decision:**
+
+- Add `MessagesConcurrencyTests`, which run the service against a real PostgreSQL 17 started with
+  Testcontainers (`PostgresMessagesApiFactory`). The app applies its migrations on startup, so
+  migrations are tested too.
+- Force the race with an EF Core `SaveChangesInterceptor` in the test project (`InsertGate`): it
+  holds every insert until all expected requests have reached it, then releases them together.
+  No test code goes into the app.
+- Tag the class `[Trait("Category", "Docker")]` so it can be skipped with
+  `--filter "Category!=Docker"`.
+- Add `MessagesIdempotencyTests` (in-memory) for repeated requests, repeated edits, whitespace-only
+  differences and stale retries. Both factories share `MessagesApiFactoryBase`.
+
+**Consequences:** The full test run needs Docker and takes a few seconds longer. The fallback now
+runs on every test run (13 duplicate-key rejections handled per run), and breaking it fails two
+tests. The stale-retry test records a known limit: an old request arriving after a newer edit
+reverts the text, because plain `PUT` has no version check (ETag / `If-Match`).
+
+## D-029: Round send and edit times to microseconds
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** .NET times have 100 ns ticks, but PostgreSQL `timestamptz` keeps microseconds. The
+response to a create was built from the in-memory entity, so its `sentAt` could differ slightly from
+what every later read returned, breaking D-023's "a retry returns the same data". Tests missed it
+because the fake clock started on a whole second.
+
+**Decision:** `MessageService` rounds `SentAt` and `UpdatedAt` down to the microsecond before
+storing them. `MessagesPostgresStorageTests` checks it with a clock that has sub-microsecond ticks.
+
+**Consequences:** Responses and reads always agree. Times are microsecond-precise, which is far
+finer than a chat needs.
+
+## D-030: The text length limit counts the trimmed text
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** `[MaxLength]` checked the raw request text, but the service trims it before storing. So
+2000 characters with surrounding spaces were rejected even though the stored text would fit.
+
+**Decision:** Validate with `TrimmedMaxLengthAttribute`, which derives from `MaxLengthAttribute`
+and trims before checking. The limit applies to the text that is actually stored.
+
+**Consequences:** Deriving from `MaxLengthAttribute` keeps `maxLength` in the OpenAPI schema. The
+schema slightly understates what is accepted: a longer body passes if the extra is only surrounding
+whitespace.
+
+## D-031: Order messages with the same send time by id
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** Messages are listed by `SentAt` (D-022). Two messages with the same time had no defined
+order, so PostgreSQL could return them differently on each read.
+
+**Decision:** Order by `SentAt`, then by `Id`.
+
+**Consequences:** The list order is stable. Ids are random Guids, so ties are ordered arbitrarily but
+consistently. PostgreSQL and .NET compare Guids differently, so the frontend's local sort may order
+an exact tie differently until the next reload.

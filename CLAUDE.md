@@ -20,6 +20,15 @@ Keeping it current is part of finishing any task, not optional.
 - When wrapping up a task, say which entries you added or superseded, or that none
   were needed.
 
+## Tests
+
+- Run `dotnet test Pingo.slnx` before committing a code change, and don't commit with failing tests.
+  The concurrency tests need Docker running. If Docker isn't available, run
+  `--filter "Category!=Docker"` and say in your wrap-up that those tests weren't run.
+- When you change Message service behaviour, add or update a component test in
+  `Services/Message/Pingo.Messages.ComponentTests` that covers it.
+- Stop a running API first if the build reports a locked `Pingo.Messages.Api.exe`.
+
 ## Homework stage tags
 
 - Each finished homework stage is tagged with an annotated tag, numbered with
