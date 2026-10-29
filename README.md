@@ -77,6 +77,17 @@ dotnet tool restore
 dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --output-dir Data/Migrations
 ```
 
+## Identity service
+
+Handles registration, login and tokens. It uses PostgreSQL through Dapper, with no EF Core:
+
+- **Database:** its own database, `pingo_identity`, in the same local PostgreSQL container. The
+  service creates it on first start.
+- **Migrations:** hand-written SQL in `Services/Identity/Pingo.Identity/Data/Migrations.cs`. A
+  `BackgroundService` applies them on startup and records each one in `schema_migrations`.
+- **New migration:** to change the schema, add a new `Migration` with the next version number.
+  Never edit one that has already been applied.
+
 ## Frontend: pending messages
 
 The UI sends messages the way most messengers do:

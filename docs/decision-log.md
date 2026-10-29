@@ -575,3 +575,65 @@ Development only. The document generator stays `Microsoft.AspNetCore.OpenApi`. T
 
 **Consequences:** One package, no second document generator. The Message API doesn't have the UI
 yet; it can get the same two lines if needed.
+
+## D-034: Identity storage: Dapper on PostgreSQL with hand-written SQL migrations
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Stage 03 forbids EF Core in the Identity service: queries are written by hand with
+Dapper, and migrations are SQL constants in raw string literals in the code.
+
+**Decision:**
+
+- `Pingo.Identity` uses Dapper over Npgsql, with one `NpgsqlDataSource` (connection pool) owned by
+  the internal `IdentityDatabase` singleton.
+- Migrations live in `Data/Migrations.cs` as `Migration(Version, Name, Sql)` records. Applied
+  versions are recorded in a `schema_migrations` table.
+- Each migration runs in its own transaction together with its history row, so a failure leaves
+  nothing half-applied. PostgreSQL supports transactional DDL, so this covers schema changes too.
+- A PostgreSQL advisory lock around the whole run lets only one instance migrate at a time.
+- An applied migration is never edited; mistakes are fixed by a new migration.
+- Tables and columns use `snake_case`, the PostgreSQL convention.
+
+**Consequences:** No down migrations: rolling back means writing a new forward migration. A
+migration that can't run in a transaction (for example `CREATE INDEX CONCURRENTLY`) would need a
+flag to opt out.
+
+## D-035: Apply Identity migrations in a `BackgroundService`, holding queries until done
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Stage 03 asks for migrations to be applied in a `BackgroundService`. A background
+service runs alongside startup, so the API can accept requests before the schema exists.
+
+**Decision:** `DatabaseMigrator : BackgroundService` creates the database if needed and applies the
+migrations. `IdentityDatabase.OpenConnectionAsync` waits until the migrator reports success, so a
+request that arrives early waits for the schema instead of failing. If migrating fails, the
+exception stops the host (the default `BackgroundServiceExceptionBehavior.StopHost`), and
+waiting requests get the same error.
+
+**Consequences:** Startup is not delayed by migrations, and no query can run against a half-built
+schema. With several instances, migrating on startup works thanks to the advisory lock (D-034), but
+a separate deployment step would be the usual choice in production.
+
+## D-036: Separate `pingo_identity` database, created by the service on first start
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Each microservice should own its data. The local PostgreSQL container
+(`docker-compose.yml`) only creates the Message service's database, and its init scripts would
+not run on an existing volume.
+
+**Decision:** The Identity service uses its own database, `pingo_identity`, in the same local
+PostgreSQL container. The migrator connects to the `postgres` maintenance database and creates
+`pingo_identity` if it doesn't exist.
+
+**Consequences:** No manual setup is needed locally. Creating the database requires the
+`CREATEDB` permission, which the local development user has. In production the database would be
+provisioned in advance and this step would find it already there.

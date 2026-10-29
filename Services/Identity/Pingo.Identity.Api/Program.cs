@@ -5,7 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-builder.Services.AddPingoIdentity();
+builder.Services.AddPingoIdentity(builder.Configuration.GetConnectionString("Identity"));
 
 var app = builder.Build();
 
