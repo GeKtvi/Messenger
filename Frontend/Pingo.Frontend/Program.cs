@@ -12,6 +12,7 @@ var messageApiUrl = builder.Configuration["MessageApi:BaseUrl"]
     ?? throw new InvalidOperationException("MessageApi:BaseUrl is not configured.");
 
 builder.Services.AddScoped(_ => new MessageApiClient(new HttpClient { BaseAddress = new Uri(messageApiUrl) }));
+builder.Services.AddScoped<MessageOutbox>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();

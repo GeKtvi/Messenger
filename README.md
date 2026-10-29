@@ -44,12 +44,18 @@ Pingo.slnx
 
 ## Message service API
 
-| Method | Route           | Description            |
-|--------|-----------------|------------------------|
-| GET    | `/api/messages` | Returns all messages   |
-| POST   | `/api/messages` | Sends a message (`{ "text": "..." }`) |
+| Method | Route                         | Description |
+|--------|-------------------------------|-------------|
+| GET    | `/api/messages`               | Returns all messages, oldest first |
+| PUT    | `/api/messages/{messageId}`   | Sends a message (`{ "text": "..." }`). Idempotent, see below |
 
 Each message has a `sentAt` time and an `updatedAt` time, which is `null` until the message is edited.
+
+Sending is idempotent. The client picks the message id (a `Guid`):
+
+- **New id:** creates the message, returns `201 Created`.
+- **Existing id, new text:** updates the text and `updatedAt`, returns `200 OK`.
+- **Existing id, same text:** changes nothing, returns `200 OK`. Retrying a request is always safe.
 
 Messages are stored in PostgreSQL. The schema is managed with EF Core migrations, which the API
 applies automatically on startup. Example requests are in `Pingo.Messages.Api.http`.
@@ -65,6 +71,18 @@ dotnet tool restore
 ```bash
 dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --output-dir Data/Migrations
 ```
+
+## Frontend: pending messages
+
+The UI sends messages the way most messengers do:
+
+- A sent message appears in the chat right away as **Sending…**, and you can keep typing and send
+  more without waiting.
+- Once the server confirms it, it becomes a normal message.
+- If sending fails, it's marked **Not sent** with **Retry** and **Discard** buttons.
+- Pending messages are kept in the browser's `localStorage` (`pingo.outbox`), so they survive a
+  reload and are resent automatically when the page opens. Each one keeps its client-generated id,
+  so resending never creates a duplicate.
 
 ## Running locally
 

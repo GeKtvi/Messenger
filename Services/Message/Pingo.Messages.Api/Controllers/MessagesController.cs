@@ -1,7 +1,6 @@
-using Pingo.Messages.Api.Contracts;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Pingo.Messages;
+using Pingo.Messages.Api.Contracts;
 using Pingo.Messages.Models;
 
 namespace Pingo.Messages.Api.Controllers;
@@ -18,13 +17,26 @@ public class MessagesController(IMessageService messages) : ControllerBase
         return TypedResults.Ok(all.Select(ToResponse).ToList());
     }
 
-    // Invalid requests never reach here: [ApiController] returns 400 ValidationProblem automatically.
-    [HttpPost]
+    // Idempotent send: the client picks the id. A new id creates the message (201),
+    // an existing id updates its text (200). Repeating the same request changes nothing.
+    // Invalid bodies never reach here: [ApiController] returns 400 ValidationProblem automatically.
+    [HttpPut("{messageId:guid}")]
     [ProducesResponseType<HttpValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
-    public async Task<Created<MessageResponse>> Send(SendMessageRequest request, CancellationToken ct)
+    public async Task<Results<Created<MessageResponse>, Ok<MessageResponse>, ValidationProblem>> Send(
+        Guid messageId, SendMessageRequest request, CancellationToken ct)
     {
-        var message = await messages.SendAsync(request.Text, ct);
-        return TypedResults.Created($"/api/messages/{message.Id}", ToResponse(message));
+        if (messageId == Guid.Empty)
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(messageId)] = ["Message id must not be empty."]
+            });
+
+        var result = await messages.SendAsync(messageId, request.Text, ct);
+        var response = ToResponse(result.Message);
+
+        return result.Created
+            ? TypedResults.Created($"/api/messages/{response.Id}", response)
+            : TypedResults.Ok(response);
     }
 
     private static MessageResponse ToResponse(Message message) =>

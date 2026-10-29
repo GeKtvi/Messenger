@@ -1,5 +1,7 @@
 @page "/"
+@implements IDisposable
 @inject MessageApiClient MessageApi
+@inject MessageOutbox Outbox
 @inject ISnackbar Snackbar
 
 <PageTitle>Pingo</PageTitle>
@@ -13,13 +15,12 @@
                           Placeholder="Write something..."
                           Variant="Variant.Outlined"
                           Immediate
-                          MaxLength="2000"
-                          Disabled="_sending" />
+                          MaxLength="2000" />
             <MudButton ButtonType="ButtonType.Submit"
                        Variant="Variant.Filled"
                        Color="Color.Primary"
                        EndIcon="@Icons.Material.Filled.Send"
-                       Disabled="@(_sending || string.IsNullOrWhiteSpace(_text))">
+                       Disabled="@string.IsNullOrWhiteSpace(_text)">
                 Send
             </MudButton>
         </MudStack>
@@ -30,7 +31,7 @@
 {
     <MudProgressLinear Indeterminate Color="Color.Primary" />
 }
-else if (_messages.Count == 0)
+else if (_messages.Count == 0 && !PendingToShow.Any())
 {
     <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">
         No messages yet. Be the first!
@@ -38,10 +39,10 @@ else if (_messages.Count == 0)
 }
 else
 {
-    <MudList T="MessageDto" Dense>
+    <MudList T="string" Dense>
         @foreach (var message in _messages)
         {
-            <MudListItem T="MessageDto" Icon="@Icons.Material.Filled.ChatBubbleOutline">
+            <MudListItem T="string" Icon="@Icons.Material.Filled.ChatBubbleOutline">
                 <MudText Typo="Typo.body1">@message.Text</MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
                     @message.SentAt.ToLocalTime().ToString("g")
@@ -52,15 +53,51 @@ else
                 </MudText>
             </MudListItem>
         }
+
+        @foreach (var pending in PendingToShow)
+        {
+            var failed = pending.Status == PendingStatus.Failed;
+            <MudListItem T="string"
+                         Icon="@(failed ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.Schedule)"
+                         IconColor="@(failed ? Color.Error : Color.Default)"
+                         Class="pending-message">
+                <MudText Typo="Typo.body1" Style="opacity: 0.7">@pending.Text</MudText>
+                <MudStack Row AlignItems="AlignItems.Center" Spacing="1">
+                    @if (failed)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Error">Not sent</MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                   OnClick="() => Outbox.RetryAsync(pending)">Retry</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Text"
+                                   OnClick="() => Outbox.DiscardAsync(pending)">Discard</MudButton>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Sending…</MudText>
+                    }
+                </MudStack>
+            </MudListItem>
+        }
     </MudList>
 }
 
 @code {
     private List<MessageDto>? _messages;
     private string _text = string.Empty;
-    private bool _sending;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    // A pending message can briefly also be in the server list (e.g. delivered just before
+    // a reload); show it only once.
+    private IEnumerable<PendingMessage> PendingToShow =>
+        Outbox.Pending.Where(p => _messages?.Any(m => m.Id == p.Id) != true);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Outbox.Changed += OnOutboxChanged;
+        Outbox.Delivered += OnDelivered;
+
+        await LoadAsync();
+        await Outbox.InitializeAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -77,23 +114,30 @@ else
 
     private async Task SendAsync()
     {
-        if (_sending || string.IsNullOrWhiteSpace(_text))
+        if (string.IsNullOrWhiteSpace(_text))
             return;
 
-        _sending = true;
-        try
-        {
-            await MessageApi.SendAsync(_text);
-            _text = string.Empty;
-            await LoadAsync();
-        }
-        catch (HttpRequestException ex)
-        {
-            Snackbar.Add($"Could not send message: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _sending = false;
-        }
+        var text = _text;
+        _text = string.Empty;
+        await Outbox.SendAsync(text);
+    }
+
+    private void OnOutboxChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnDelivered(MessageDto message)
+    {
+        if (_messages is null)
+            return;
+
+        _messages.RemoveAll(m => m.Id == message.Id);
+        _messages.Add(message);
+        _messages.Sort((a, b) => a.SentAt.CompareTo(b.SentAt));
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Outbox.Changed -= OnOutboxChanged;
+        Outbox.Delivered -= OnDelivered;
     }
 }

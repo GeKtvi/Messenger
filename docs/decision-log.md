@@ -353,3 +353,86 @@ shows "· edited", with the edit time on hover, when it's set.
 
 **Consequences:** Clients can tell edited messages apart without a separate flag. `SentAt` remains
 the sort key, so edits don't reorder the chat.
+
+## D-023: Send with idempotent `PUT /api/messages/{messageId}`
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** Stage 02 replaces `POST /api/messages` with `PUT /api/messages/{messageId}`: create the
+message the first time, otherwise update its text and edit time.
+
+**Decision:**
+
+- The client generates the message id. `POST` is removed.
+- `MessageService.SendAsync(id, text)` creates or updates and returns `SendMessageResult(Message,
+  Created)`. The controller maps that to `201 Created` or `200 OK`.
+- Only a *different* text counts as an edit. Repeating an identical request changes nothing, not even
+  `updatedAt`, so the operation is truly idempotent and retries are safe.
+- If two requests insert the same new id at the same moment, the loser catches the PostgreSQL unique
+  violation (`23505`) and continues as an update instead of returning a 500.
+- The frontend keeps the id of a failed send and reuses it on retry, so a lost response can't create
+  a duplicate.
+- `Guid.Empty` is rejected with 400. A non-Guid id doesn't match the route (404).
+
+**Consequences:** Clients can retry freely. Anyone who knows a message id can edit it, which is
+accepted while the chat is anonymous; ownership checks come with users. The duplicate-insert
+fallback relies on PostgreSQL error codes and hasn't been exercised yet: ten concurrent requests in
+manual testing didn't overlap, and the in-memory test database can't reproduce it.
+
+## D-024: Development-only delay for message sends
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Superseded by D-026
+
+**Context:** Sends are fast locally, so the UI's sending state, retries and concurrent sends can't be
+observed by hand.
+
+**Decision:** Add a small middleware in the API's `Program.cs` that delays every `PUT` by
+`Testing:SendDelayMs` milliseconds. It only runs in the Development environment, is `0` (off) in
+`appsettings.Development.json`, and logs a warning at startup when enabled. Turn it on per run with
+the `Testing__SendDelayMs` environment variable.
+
+**Consequences:** It can't affect Production, and it keeps test-only code out of the controller and
+the business layer. Because it delays the request before the controller, concurrent requests are
+slowed but not synchronized, so it doesn't reproduce the duplicate-insert race from D-023. A test
+for that would need a pause between the lookup and the insert inside `MessageService`.
+
+## D-025: Optimistic sending with a persistent outbox in the frontend
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** The UI locked the input while a message was being sent, and a failed send was only a
+popup. With a slow server, the chat felt frozen, and a reload lost anything unsent.
+
+**Decision:** Add a `MessageOutbox` service in the frontend, like a messenger's outbox:
+
+- A new message gets its id on the client and appears immediately as "Sending…". The input stays
+  usable, so several messages can be pending at once.
+- On success it's replaced by the server's copy. On failure it's shown as "Not sent" with Retry
+  (same id) and Discard.
+- Pending messages are saved in `localStorage` under `pingo.outbox` and resent automatically when
+  the app starts.
+
+**Consequences:** Retries and resends after a reload are safe only because `PUT` is idempotent
+(D-023). The outbox lives in one browser, so it doesn't follow the user to another device. There's
+no automatic retry with backoff yet: a failed message waits for Retry or the next page load. A
+message rejected by validation (400) also shows as "Not sent", and retrying it won't help.
+
+## D-026: Remove the development send delay
+
+- **Date:** 2026-10-29
+- **Stage:** 02
+- **Status:** Accepted
+
+**Context:** The send delay from D-024 was added to try out the UI's sending state, retries and the
+outbox (D-025) by hand. That testing is done.
+
+**Decision:** Remove the middleware, the `Testing:SendDelayMs` setting and its README section.
+
+**Consequences:** The API has no test-only code paths. To slow sends down again, use the browser's
+network throttling, or restore the middleware from git history (commit with D-024).

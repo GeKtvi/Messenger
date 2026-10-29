@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Pingo.Messages.Data;
-using MessageEntity = Pingo.Messages.Entities.Message;
 using Pingo.Messages.Models;
+using MessageEntity = Pingo.Messages.Entities.Message;
 
 namespace Pingo.Messages;
 
@@ -16,22 +17,44 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
             .Select(m => new Message(m.Id, m.Text, m.SentAt, m.UpdatedAt))
             .ToListAsync(ct);
 
-    public async Task<Message> SendAsync(string text, CancellationToken ct = default)
+    public async Task<SendMessageResult> SendAsync(Guid id, string text, CancellationToken ct = default)
     {
+        if (id == Guid.Empty)
+            throw new ArgumentException("Message id must not be empty.", nameof(id));
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         text = text.Trim();
         ArgumentOutOfRangeException.ThrowIfGreaterThan(text.Length, MessageLimits.MaxTextLength, nameof(text));
 
-        var message = new MessageEntity
+        var message = await db.Messages.FindAsync([id], ct);
+        if (message is null)
         {
-            Id = Guid.NewGuid(),
-            Text = text,
-            SentAt = time.GetUtcNow()
-        };
+            message = new MessageEntity { Id = id, Text = text, SentAt = time.GetUtcNow() };
+            db.Messages.Add(message);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return new SendMessageResult(ToModel(message), Created: true);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                // A concurrent request created the same id first: fall through and update it instead.
+                db.ChangeTracker.Clear();
+                message = await db.Messages.FindAsync([id], ct)
+                    ?? throw new InvalidOperationException($"Message {id} vanished after a duplicate insert.", ex);
+            }
+        }
 
-        db.Messages.Add(message);
-        await db.SaveChangesAsync(ct);
+        // Repeating the same request must not change anything, so only a new text counts as an edit.
+        if (message.Text != text)
+        {
+            message.Text = text;
+            message.UpdatedAt = time.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+        }
 
-        return new Message(message.Id, message.Text, message.SentAt, message.UpdatedAt);
+        return new SendMessageResult(ToModel(message), Created: false);
     }
+
+    private static Message ToModel(MessageEntity message) =>
+        new(message.Id, message.Text, message.SentAt, message.UpdatedAt);
 }
