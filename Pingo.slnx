@@ -10,6 +10,10 @@
     <Project Path="Frontend/Pingo.Frontend/Pingo.Frontend.csproj" />
   </Folder>
   <Folder Name="/Services/" />
+  <Folder Name="/Services/Identity/">
+    <Project Path="Services/Identity/Pingo.Identity.Api/Pingo.Identity.Api.csproj" />
+    <Project Path="Services/Identity/Pingo.Identity/Pingo.Identity.csproj" />
+  </Folder>
   <Folder Name="/Services/Message/">
     <Project Path="Services/Message/Pingo.Messages.Api/Pingo.Messages.Api.csproj" />
     <Project Path="Services/Message/Pingo.Messages.ComponentTests/Pingo.Messages.ComponentTests.csproj" />

@@ -36,10 +36,13 @@ To view a stage's code: `git checkout 01` (or browse the tag on GitHub).
 ```
 Pingo.slnx
 ├── Services/
-│   └── Message/
-│       ├── Pingo.Messages.Api              # API layer: ASP.NET Core controllers, request/response contracts
-│       ├── Pingo.Messages                  # Business layer: IMessageService, EF Core (PostgreSQL), entities
-│       └── Pingo.Messages.ComponentTests   # Component tests: the whole service over HTTP, in-memory DB
+│   ├── Message/
+│   │   ├── Pingo.Messages.Api              # API layer: ASP.NET Core controllers, request/response contracts
+│   │   ├── Pingo.Messages                  # Business layer: IMessageService, EF Core (PostgreSQL), entities
+│   │   └── Pingo.Messages.ComponentTests   # Component tests: the whole service over HTTP, in-memory DB
+│   └── Identity/
+│       ├── Pingo.Identity.Api              # API layer: registration, login, token refresh (Swagger UI)
+│       └── Pingo.Identity                  # Business layer: users, password hashing, tokens
 └── Frontend/
     └── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
 ```
@@ -137,5 +140,7 @@ dotnet run --project Frontend/Pingo.Frontend --launch-profile http
 Then open http://localhost:5221.
 
 - API: http://localhost:5230 (OpenAPI document at `/openapi/v1.json` in Development)
+- Identity API: `dotnet run --project Services/Identity/Pingo.Identity.Api --launch-profile http`,
+  then Swagger UI at http://localhost:5240/swagger
 - The frontend reads the API address from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.

@@ -542,3 +542,36 @@ order, so PostgreSQL could return them differently on each read.
 **Consequences:** The list order is stable. Ids are random Guids, so ties are ordered arbitrarily but
 consistently. PostgreSQL and .NET compare Guids differently, so the frontend's local sort may order
 an exact tie differently until the next reload.
+
+## D-032: Identity service with an API project and a business project
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Stage 03 adds an authentication service (registration, login, tokens) with a Web API
+project and a business-logic project, in its own `Identity` folder.
+
+**Decision:** Add `Services/Identity/Pingo.Identity.Api` (controllers, HTTP) and
+`Services/Identity/Pingo.Identity` (business layer, storage, tokens), following D-002 and D-012.
+The API registers the business layer with `AddPingoIdentity()`; the name avoids clashing with
+ASP.NET Core Identity's `AddIdentity`. The API listens on `http://localhost:5240`.
+
+**Consequences:** The two services share no code. Anything common (for example JWT settings that
+the Message service will need to validate tokens) will need a decision on where it lives.
+
+## D-033: Swagger UI on top of the built-in OpenAPI document
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Stage 03 is tested by hand through Swagger. The APIs already generate their OpenAPI
+document with `Microsoft.AspNetCore.OpenApi`, which has no UI.
+
+**Decision:** Add only `Swashbuckle.AspNetCore.SwaggerUI` and point it at `/openapi/v1.json`, in
+Development only. The document generator stays `Microsoft.AspNetCore.OpenApi`. The UI is at
+`/swagger`.
+
+**Consequences:** One package, no second document generator. The Message API doesn't have the UI
+yet; it can get the same two lines if needed.
