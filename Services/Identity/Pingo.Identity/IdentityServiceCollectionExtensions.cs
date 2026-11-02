@@ -9,7 +9,8 @@ namespace Pingo.Identity;
 public static class IdentityServiceCollectionExtensions
 {
     // Registers the Identity business layer: the PostgreSQL connection (used with Dapper), the
-    // background service that applies the migrations on startup, token issuing and IAuthService.
+    // background service that applies the migrations on startup, the repositories, token issuing
+    // and IAuthService.
     public static IServiceCollection AddPingoIdentity(
         this IServiceCollection services, string? connectionString, IConfigurationSection jwtSection)
     {
@@ -21,6 +22,11 @@ public static class IdentityServiceCollectionExtensions
         // A missing or too short signing key fails at startup, not on the first login.
         services.AddOptions<JwtOptions>().Bind(jwtSection).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<TokenFactory>();
+
+        // Repositories hold no state, only the shared IdentityDatabase, so one instance each is enough.
+        services.AddSingleton<IUserRepository, UserRepository>();
+        services.AddSingleton<IPasswordLoginRepository, PasswordLoginRepository>();
+        services.AddSingleton<IRefreshTokenRepository, RefreshTokenRepository>();
 
         services.AddScoped<IAuthService, AuthService>();
         services.TryAddSingleton(TimeProvider.System);

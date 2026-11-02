@@ -92,6 +92,7 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 |--------|----------------------|-------------|
 | POST   | `/api/auth/register` | Registers `{ "email": "...", "password": "..." }`. Returns `201` with the user id, `409` if the email is taken |
 | POST   | `/api/auth/login`    | Signs in with `{ "email": "...", "password": "..." }`. Returns an access token and a refresh token, or `401` |
+| POST   | `/api/auth/refresh`  | Exchanges `{ "refreshToken": "..." }` for a new access token and a new refresh token, or `401` |
 
 - **Storage:** users and their email/password sign-ins are kept in separate tables (`users`,
   `password_logins`), so other ways to sign in can be added later.
@@ -100,7 +101,9 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 - **Access token:** a JWT signed with HS256, valid for 15 minutes, with the user id in `sub`. Send it
   as `Authorization: Bearer <accessToken>`. JWT settings are in the `Jwt` section of
   `appsettings.json`; the development signing key is in `appsettings.Development.json`.
-- **Refresh token:** a random 256-bit string, valid for 30 days. Only its SHA-256 hash is stored.
+- **Refresh token:** a random 256-bit string. Only its SHA-256 hash is stored. Each refresh token
+  works once: refreshing returns a new one and invalidates the old one. The session ends 30 days
+  after login, however often it's refreshed.
 
 ## Frontend: pending messages
 

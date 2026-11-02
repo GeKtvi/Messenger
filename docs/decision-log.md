@@ -759,3 +759,61 @@ fields; length and format rules belong to registration.
 **Consequences:** Login can't be used to find registered emails, although registration still can
 (D-039). There's no rate limiting or lockout yet, so password guessing is only slowed by the hash
 cost.
+
+## D-043: Identity data access through small per-table repositories
+
+- **Date:** 2026-11-02
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** `AuthService` held the SQL, the Dapper calls, the connection and transaction handling,
+and the registration and login rules in one class. Step 5 would add more SQL to it.
+
+**Decision:**
+
+- Move the SQL into internal repositories, one per table or unit of work: `IUserRepository`
+  (`TryCreateWithPasswordLoginAsync`), `IPasswordLoginRepository` (`FindByEmailAsync`) and
+  `IRefreshTokenRepository` (`AddAsync`). Methods are added only when a flow needs them.
+- Repositories exchange internal records (`User`, `PasswordLogin`, `StoredRefreshToken`), take
+  already normalized or hashed values, and contain no business rules.
+- Each repository method takes a pooled connection from `IdentityDatabase` and returns it before
+  the method ends. Work that must be atomic (registration's two inserts) is one repository method
+  with its own transaction.
+- Expected outcomes are return values (`false`, `null`); exceptions are for real failures.
+- No generic `IRepository<T>` and no Unit of Work.
+
+**Consequences:** `AuthService` reads as the flow itself and no longer touches connections, so no
+connection is held during password hashing. Two repository calls don't share a transaction; if a
+flow needs that across repositories, a Unit of Work (one connection and transaction passed into the
+methods) is the next step. Dapper maps rows through record constructors, which need exact types:
+`timestamptz` arrives as a UTC `DateTime` and is converted to `DateTimeOffset`.
+
+## D-044: Refresh rotates the refresh token and keeps the session's original expiry
+
+- **Date:** 2026-11-02
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Stage 03's refresh endpoint takes a refresh token and returns a new access token.
+A refresh token that stays valid for 30 days, however often it's used, is a long-lived target if
+it's stolen.
+
+**Decision:**
+
+- `POST /api/auth/refresh` takes `{ refreshToken }` in the body and returns the same shape as
+  login: a new access token **and a new refresh token**. The old refresh token is deleted
+  (rotation), so each refresh token works exactly once.
+- `IRefreshTokenRepository.TryReplaceAsync` deletes the old row and inserts the new one in one
+  transaction. The `DELETE`'s row count is the check: when the same token is sent several times at
+  once, PostgreSQL lets only one request delete the row, and the others get `401`. Checked with 10
+  simultaneous requests: one `200`, nine `401`.
+- The new refresh token keeps the old one's `expires_at`. A session lasts 30 days from login
+  (an absolute lifetime), however often it's refreshed.
+- An unknown, expired or already used token returns the same `401` ("Invalid or expired refresh
+  token."). Expiry is checked against `TimeProvider`.
+
+**Consequences:** A stolen refresh token stops working as soon as either party uses it, and no
+session outlives its 30 days. Two limits remain: reusing an already rotated token isn't treated as
+theft (a full implementation would then revoke all of that user's tokens), and a client that loses
+the response to a refresh (for example, a dropped connection) has to log in again, because its old
+token is already used up.

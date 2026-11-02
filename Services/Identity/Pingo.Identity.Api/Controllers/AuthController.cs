@@ -47,6 +47,23 @@ public class AuthController(IAuthService auth) : ControllerBase
         };
     }
 
+    // Returns a new access token and a new refresh token; the refresh token sent in is used up.
+    [HttpPost("refresh")]
+    [ProducesResponseType<HttpValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<Results<Ok<TokenResponse>, ProblemHttpResult>> Refresh(RefreshRequest request, CancellationToken ct)
+    {
+        var result = await auth.RefreshAsync(request.RefreshToken, ct);
+
+        return result switch
+        {
+            RefreshResult.Succeeded refresh => TypedResults.Ok(ToResponse(refresh.Tokens)),
+            RefreshResult.InvalidToken => TypedResults.Problem(
+                title: "Invalid or expired refresh token.", statusCode: StatusCodes.Status401Unauthorized),
+            _ => throw new InvalidOperationException($"Unexpected refresh result {result}."),
+        };
+    }
+
     private static TokenResponse ToResponse(AuthTokens tokens) =>
         new(tokens.AccessToken, tokens.AccessTokenExpiresAt, tokens.RefreshToken, tokens.RefreshTokenExpiresAt);
 }

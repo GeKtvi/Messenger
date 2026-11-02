@@ -29,6 +29,14 @@ public class LoginRequest
     public string Password { get; init; } = string.Empty;
 }
 
+// Sent in the body, never in the URL, so the token doesn't end up in server or proxy logs.
+public class RefreshRequest
+{
+    [Required(ErrorMessage = "Refresh token is required.")]
+    [MaxLength(256, ErrorMessage = "Refresh token must be at most {1} characters.")]
+    public string RefreshToken { get; init; } = string.Empty;
+}
+
 public record TokenResponse(
     string AccessToken,
     DateTimeOffset AccessTokenExpiresAt,
