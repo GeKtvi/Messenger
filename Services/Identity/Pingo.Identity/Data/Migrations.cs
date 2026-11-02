@@ -27,5 +27,17 @@ internal static class Migrations
                 created_at          timestamptz NOT NULL
             );
             """),
+
+        // Refresh tokens are stored as SHA-256 hashes, never as the token itself.
+        new(3, "CreateRefreshTokens", """
+            CREATE TABLE refresh_tokens (
+                token_hash bytea       PRIMARY KEY,
+                user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+                created_at timestamptz NOT NULL,
+                expires_at timestamptz NOT NULL
+            );
+
+            CREATE INDEX refresh_tokens_user_id_idx ON refresh_tokens (user_id);
+            """),
     ];
 }

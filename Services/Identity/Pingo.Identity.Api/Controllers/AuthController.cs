@@ -30,4 +30,23 @@ public class AuthController(IAuthService auth) : ControllerBase
             _ => throw new InvalidOperationException($"Unexpected registration result {result}."),
         };
     }
+
+    [HttpPost("login")]
+    [ProducesResponseType<HttpValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<Results<Ok<TokenResponse>, ProblemHttpResult>> Login(LoginRequest request, CancellationToken ct)
+    {
+        var result = await auth.LoginAsync(request.Email, request.Password, ct);
+
+        return result switch
+        {
+            LoginResult.Succeeded login => TypedResults.Ok(ToResponse(login.Tokens)),
+            LoginResult.InvalidCredentials => TypedResults.Problem(
+                title: "Invalid email or password.", statusCode: StatusCodes.Status401Unauthorized),
+            _ => throw new InvalidOperationException($"Unexpected login result {result}."),
+        };
+    }
+
+    private static TokenResponse ToResponse(AuthTokens tokens) =>
+        new(tokens.AccessToken, tokens.AccessTokenExpiresAt, tokens.RefreshToken, tokens.RefreshTokenExpiresAt);
 }

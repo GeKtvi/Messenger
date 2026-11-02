@@ -696,3 +696,66 @@ passwords are allowed, and how to report an email that's already registered.
 **Consequences:** `409` tells anyone whether an email is registered (account enumeration). Hiding
 that needs an email confirmation flow, which is out of scope. The `201` has no `Location`
 header, because there's no endpoint to read a user yet.
+
+## D-040: Access tokens are short-lived HS256 JWTs carrying only the user id
+
+- **Date:** 2026-11-02
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Login must return a JWT access token. Other services will need to check these tokens
+without calling the Identity service on every request.
+
+**Decision:**
+
+- Create tokens with `JsonWebTokenHandler` (`Microsoft.IdentityModel.JsonWebTokens`), signed with
+  HMAC-SHA256.
+- Claims: `sub` (user id), `jti`, `iss` = `pingo-identity`, `aud` = `pingo`, `iat`, `nbf`, `exp`.
+- Lifetime: 15 minutes.
+- Settings come from the `Jwt` configuration section (`JwtOptions`) and are validated on startup.
+  A signing key shorter than 32 bytes stops the app.
+- The development signing key is in `appsettings.Development.json` and clearly named as
+  development-only. Any other environment must supply its own key, for example through an
+  environment variable.
+
+**Consequences:** HS256 uses one shared secret, so any service that checks tokens could also create
+them. That's acceptable while everything is ours. Moving to RS256/ES256 with a published public key
+(JWKS) would let other services verify tokens without being able to create them. A JWT can't be
+revoked before it expires, which is why the lifetime is short.
+
+## D-041: Refresh tokens are random strings stored only as SHA-256 hashes
+
+- **Date:** 2026-11-02
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Login must also return a refresh token, described in the task as a long random string.
+Whoever holds it can get new access tokens.
+
+**Decision:** A refresh token is 32 bytes from `RandomNumberGenerator`, base64url-encoded (43
+characters), valid for 30 days. The `refresh_tokens` table (migration 3) stores only its
+SHA-256 hash (the primary key), the `user_id`, `created_at` and `expires_at`. Every login adds a new
+row, so each device gets its own token.
+
+**Consequences:** A leaked table can't be used to sign in. A plain fast hash is enough here, unlike
+for passwords, because the token has 256 bits of randomness and can't be guessed. Expired rows are
+never deleted yet, so a cleanup job will be needed later.
+
+## D-042: Login returns one generic 401 and takes the same time for unknown emails
+
+- **Date:** 2026-11-02
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Login must return `401 Unauthorized` for wrong credentials. Saying which part was wrong,
+or answering faster for unknown emails, would tell an attacker which emails are registered.
+
+**Decision:** `POST /api/auth/login` returns the same `401` problem ("Invalid email or password.")
+whether the email or the password is wrong. For an unknown email, the password is still checked
+against a dummy PBKDF2 hash, so both cases take the same time (about 66 ms each when measured). The
+database connection is released before the slow hash check. The login request only requires both
+fields; length and format rules belong to registration.
+
+**Consequences:** Login can't be used to find registered emails, although registration still can
+(D-039). There's no rate limiting or lockout yet, so password guessing is only slowed by the hash
+cost.

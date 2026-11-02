@@ -1,11 +1,14 @@
 using Pingo.Identity;
+using Pingo.Identity.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-builder.Services.AddPingoIdentity(builder.Configuration.GetConnectionString("Identity"));
+builder.Services.AddPingoIdentity(
+    builder.Configuration.GetConnectionString("Identity"),
+    builder.Configuration.GetSection(JwtOptions.SectionName));
 
 var app = builder.Build();
 
