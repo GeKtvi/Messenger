@@ -88,6 +88,15 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 - **New migration:** to change the schema, add a new `Migration` with the next version number.
   Never edit one that has already been applied.
 
+| Method | Route                | Description |
+|--------|----------------------|-------------|
+| POST   | `/api/auth/register` | Registers `{ "email": "...", "password": "..." }`. Returns `201` with the user id, `409` if the email is taken |
+
+- **Storage:** users and their email/password sign-ins are kept in separate tables (`users`,
+  `password_logins`), so other ways to sign in can be added later.
+- **Passwords:** hashed with PBKDF2-HMAC-SHA256, 600 000 iterations and a random salt per password.
+- **Emails:** compared case-insensitively.
+
 ## Frontend: pending messages
 
 The UI sends messages the way most messengers do:

@@ -637,3 +637,62 @@ PostgreSQL container. The migrator connects to the `postgres` maintenance databa
 **Consequences:** No manual setup is needed locally. Creating the database requires the
 `CREATEDB` permission, which the local development user has. In production the database would be
 provisioned in advance and this step would find it already there.
+
+## D-037: Users and password sign-ins in separate tables
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Stage 03 requires the login details to live apart from the user, because other ways
+to sign in (for example OAuth) may come later.
+
+**Decision:** `users` holds only `id` and `registered_at`. `password_logins` holds `user_id`
+(primary key, a foreign key to `users`, deleted with the user), `email` (unique), `password_hash`,
+`password_salt`, `password_iterations` and `created_at`. Registration inserts both rows in one
+transaction. New user ids are `Guid.CreateVersion7()`, which are time-ordered and keep the primary
+key index compact.
+
+**Consequences:** A future `oauth_logins` table can point at the same `users` row. With one row
+per user in `password_logins`, a user has at most one email and password.
+
+## D-038: Hash passwords with PBKDF2-HMAC-SHA256 and a per-password salt
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** Passwords must be stored hashed with a salt. A plain hash such as SHA-256 is far too
+fast: a GPU can try billions of guesses a second against a leaked table.
+
+**Decision:** Use `Rfc2898DeriveBytes.Pbkdf2` (built into .NET) with SHA-256, 600 000 iterations
+(OWASP's current recommendation), a random 16-byte salt per password and a 32-byte hash. The
+iteration count is stored with each hash so it can be raised later. Verification compares hashes
+with `CryptographicOperations.FixedTimeEquals`.
+
+**Consequences:** No extra package. Each hash takes about 80 ms of CPU, which slows attackers down,
+but also means many registration or login requests at once can load the server, so rate limiting
+will matter later. Argon2id would resist GPU attacks better, but needs a third-party package.
+
+## D-039: Registration rules: normalized email, length-only password rules, 409 on duplicates
+
+- **Date:** 2026-10-29
+- **Stage:** 03
+- **Status:** Accepted
+
+**Context:** The registration endpoint needs rules for what counts as the same email, what
+passwords are allowed, and how to report an email that's already registered.
+
+**Decision:**
+
+- `POST /api/auth/register` takes `{ email, password }` and returns `201` with
+  `{ userId, registeredAt }`.
+- Emails are trimmed and lower-cased before storing and comparing, so they're case-insensitive.
+- Passwords must be 8–128 characters, with no composition rules, following NIST SP 800-63B.
+- An email that's already registered returns `409 Conflict`. This is detected from the unique
+  constraint, so two simultaneous registrations can't both succeed.
+- The endpoint isn't idempotent yet, which stage 03 allows.
+
+**Consequences:** `409` tells anyone whether an email is registered (account enumeration). Hiding
+that needs an email confirmation flow, which is out of scope. The `201` has no `Location`
+header, because there's no endpoint to read a user yet.

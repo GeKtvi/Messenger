@@ -14,5 +14,18 @@ internal static class Migrations
                 registered_at timestamptz NOT NULL
             );
             """),
+
+        // Email and password sign-in, kept apart from users so other ways to sign in (for example
+        // OAuth) can get their own tables. One row per user; the email is stored normalized.
+        new(2, "CreatePasswordLogins", """
+            CREATE TABLE password_logins (
+                user_id             uuid        PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+                email               text        NOT NULL UNIQUE,
+                password_hash       bytea       NOT NULL,
+                password_salt       bytea       NOT NULL,
+                password_iterations integer     NOT NULL,
+                created_at          timestamptz NOT NULL
+            );
+            """),
     ];
 }
