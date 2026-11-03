@@ -928,3 +928,34 @@ checks them; a status, code or message can't be mismatched at a call site. The g
 document is the same as with the attributes. This is project-specific infrastructure that the
 framework doesn't provide, and a new status needs one more small result type. Extension members
 need C# 14, the default for .NET 10.
+
+## D-049: Business results are CSharpFunctionalExtensions `Result<T, TError>` with error enums
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Accepted
+
+**Context:** Stage 04 introduces CSharpFunctionalExtensions: the business logic should return
+`Result<T, TError>`, `Result<T>` or `Result` instead of a value or an exception. Until now each
+operation had its own hand-written hierarchy (an abstract `LoginResult` with `Succeeded`,
+`UserNotFound` and `WrongPassword` records, and so on: ten files for three operations).
+
+**Decision:**
+
+- `Pingo.Identity` references CSharpFunctionalExtensions 3.7.0 (MIT licence).
+- `IAuthService` returns `Result<RegisteredUser, RegistrationError>`,
+  `Result<AuthTokens, LoginError>` and `Result<AuthTokens, RefreshError>`.
+- The errors are one enum per operation (`RegistrationError.EmailTaken`,
+  `LoginError.UserNotFound`/`WrongPassword`, `RefreshError.InvalidToken`). A per-operation type keeps
+  the compiler from letting login return a registration error. Enums are enough while no error
+  carries data.
+- The service returns the value or the enum directly; both convert to the `Result` implicitly.
+- The controller checks `result.IsFailure`, maps `result.Error` to our problem results, and
+  otherwise uses `result.Value`. `Match(...)` isn't used: its two branches return different
+  `TypedResults` types, so every call would need all three generic arguments spelled out.
+
+**Consequences:** The ten result files become four small ones, and success and failure are explicit
+in every signature. The error `switch` still needs a `_ => throw` arm, because C# doesn't check
+enum switches for completeness. `result.Value` throws when read on a failure, so the `IsFailure`
+check has to come first. The library's chaining (`Bind`, `Map`, `Ensure`) isn't used: each flow has
+one or two early exits, and plain `if`s read better there.

@@ -5,9 +5,6 @@ using Pingo.Identity.Api.Contracts;
 using Pingo.Identity.Api.HttpResults;
 using Pingo.Identity.Api.OpenApi;
 using Pingo.Identity.Models;
-using LoginResults = Pingo.Identity.Models.LoginResults;
-using RefreshResults = Pingo.Identity.Models.RefreshResults;
-using RegistrationResults = Pingo.Identity.Models.RegistrationResults;
 
 namespace Pingo.Identity.Api.Controllers;
 
@@ -27,15 +24,17 @@ public class AuthController(IAuthService auth, IStringLocalizer<ErrorMessages> m
         RegisterRequest request, CancellationToken ct)
     {
         var result = await auth.RegisterAsync(request.Email, request.Password, ct);
-
-        return result switch
+        if (result.IsFailure)
         {
-            RegistrationResults.Registered user =>
-                TypedResults.Created((string?)null, new RegisterResponse(user.UserId, user.RegisteredAt)),
-            RegistrationResults.EmailTaken =>
-                TypedResults.EmailTaken(messages),
-            _ => throw new InvalidOperationException($"Unexpected registration result {result}."),
-        };
+            return result.Error switch
+            {
+                RegistrationError.EmailTaken => TypedResults.EmailTaken(messages),
+                _ => throw new InvalidOperationException($"Unexpected registration error {result.Error}."),
+            };
+        }
+
+        var user = result.Value;
+        return TypedResults.Created((string?)null, new RegisterResponse(user.UserId, user.RegisteredAt));
     }
 
     [HttpPost("login")]
@@ -43,16 +42,17 @@ public class AuthController(IAuthService auth, IStringLocalizer<ErrorMessages> m
     public async Task<Results<Ok<TokenResponse>, UnauthorizedProblem>> Login(LoginRequest request, CancellationToken ct)
     {
         var result = await auth.LoginAsync(request.Email, request.Password, ct);
-
-        return result switch
+        if (result.IsFailure)
         {
-            LoginResults.Succeeded login => TypedResults.Ok(ToResponse(login.Tokens)),
-            LoginResults.UserNotFound =>
-                TypedResults.UserNotFound(messages),
-            LoginResults.WrongPassword =>
-                TypedResults.WrongPassword(messages),
-            _ => throw new InvalidOperationException($"Unexpected login result {result}."),
-        };
+            return result.Error switch
+            {
+                LoginError.UserNotFound => TypedResults.UserNotFound(messages),
+                LoginError.WrongPassword => TypedResults.WrongPassword(messages),
+                _ => throw new InvalidOperationException($"Unexpected login error {result.Error}."),
+            };
+        }
+
+        return TypedResults.Ok(ToResponse(result.Value));
     }
 
     // Returns a new access token and a new refresh token; the refresh token sent in is used up.
@@ -61,14 +61,16 @@ public class AuthController(IAuthService auth, IStringLocalizer<ErrorMessages> m
     public async Task<Results<Ok<TokenResponse>, UnauthorizedProblem>> Refresh(RefreshRequest request, CancellationToken ct)
     {
         var result = await auth.RefreshAsync(request.RefreshToken, ct);
-
-        return result switch
+        if (result.IsFailure)
         {
-            RefreshResults.Succeeded refresh => TypedResults.Ok(ToResponse(refresh.Tokens)),
-            RefreshResults.InvalidToken =>
-                TypedResults.InvalidRefreshToken(messages),
-            _ => throw new InvalidOperationException($"Unexpected refresh result {result}."),
-        };
+            return result.Error switch
+            {
+                RefreshError.InvalidToken => TypedResults.InvalidRefreshToken(messages),
+                _ => throw new InvalidOperationException($"Unexpected refresh error {result.Error}."),
+            };
+        }
+
+        return TypedResults.Ok(ToResponse(result.Value));
     }
 
     private static TokenResponse ToResponse(AuthTokens tokens) =>
