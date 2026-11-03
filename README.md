@@ -17,6 +17,7 @@ two digits starting at `01` (`01`, `02`, `03`, ...).
 | `01` | Message service (send/list, EF Core) + Blazor WASM/MudBlazor frontend |
 | `02` | PostgreSQL, API/business layers, idempotent PUT with edit time, pending messages in the UI, component tests |
 | `03` | Identity service: Dapper + SQL migrations, registration with PBKDF2, login with JWT and refresh tokens, refresh token rotation |
+| `04` | Distinct localized Problem Details errors, CSharpFunctionalExtensions results, Identity component tests with Testcontainers and Respawn |
 
 To finish a stage:
 
