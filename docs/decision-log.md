@@ -1027,3 +1027,34 @@ an empty body, unlike every other error.
 whitespace-only passwords are rejected as "required" (the `[Required]` rule, despite D-039's
 "length only"), and the email length is checked before trimming. Also left: two instances creating
 the database at the same moment can fail with `23505` instead of the caught `42P04`.
+
+## D-052: Daily Hangfire job with Redis storage deletes expired refresh tokens
+
+- **Date:** 2026-11-03
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** Stage 05 asks for a background job in the Identity service that runs once a day and
+deletes refresh tokens whose `ExpiresAt < now`, using Hangfire (`Hangfire.AspNetCore`) with Redis
+storage (`Hangfire.Redis.StackExchange`), and an index on the expiry column.
+
+**Decision:**
+
+- Migration 4 adds `refresh_tokens_expires_at_idx` on `refresh_tokens (expires_at)`.
+- `IRefreshTokenRepository.DeleteExpiredAsync(now)` runs `DELETE ... WHERE expires_at < @Now`.
+  `IRefreshTokenCleanup` (public, in `Pingo.Identity`) calls it with `TimeProvider`'s time and logs
+  the count. A token expiring exactly now is left for the next run, as the task's `<` says.
+- The Hangfire wiring lives in the API project (`Jobs/HangfireSetup.cs`): Hangfire.AspNetCore 1.8.25
+  and Hangfire.Redis.StackExchange 1.12.0, Redis keys prefixed `pingo-identity:hangfire:`, and a
+  Hangfire server in the same process. The business project doesn't reference Hangfire.
+- The recurring job `delete-expired-refresh-tokens` runs `IRefreshTokenCleanup.DeleteExpiredAsync`
+  daily at 03:00 UTC (`Cron.Daily(3)`). It's registered with `AddOrUpdate` on every start, so the
+  schedule in Redis always matches the code. Hangfire resolves the service from a new DI scope.
+- Redis is a new `redis:8` service in `docker-compose.yml`; the connection string is
+  `ConnectionStrings:Redis`. The Hangfire dashboard is mapped at `/hangfire` in Development only.
+- The component tests start a Redis container next to PostgreSQL (Testcontainers.Redis 4.16.0).
+
+**Consequences:** Expired tokens no longer pile up, and with several instances the job still runs
+once, because Hangfire coordinates through Redis. The Identity service now needs Redis to start,
+including in tests. The dashboard has no login; Hangfire only lets local requests in by default,
+which is why it's left to Development.

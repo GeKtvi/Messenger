@@ -107,6 +107,10 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 - **Refresh token:** a random 256-bit string. Only its SHA-256 hash is stored. Each refresh token
   works once: refreshing returns a new one and invalidates the old one. The session ends 30 days
   after login, however often it's refreshed.
+- **Token cleanup:** a Hangfire job deletes expired refresh tokens once a day at 03:00 UTC, using an
+  index on `expires_at`. Hangfire keeps its jobs in Redis (the `redis` service in
+  `docker-compose.yml`, keys prefixed `pingo-identity:hangfire:`). In Development its dashboard is
+  at http://localhost:5240/hangfire, where the job can also be triggered by hand.
 - **Errors:** RFC 7807 problems (`application/problem+json`). Tell them apart by `type`
   (`urn:pingo:problem:email-taken`, `user-not-found`, `wrong-password`, `invalid-refresh-token`).
   The `title` is in English, or in Russian when the request sends `Accept-Language: ru`.
@@ -149,8 +153,8 @@ dotnet test Pingo.slnx
 
 `Pingo.Identity.ComponentTests` runs the real Identity service the same way, always against PostgreSQL:
 
-- **Testcontainers** starts one PostgreSQL container for all test classes (an xUnit collection
-  fixture) and removes it when the run ends. The app applies its own migrations on startup.
+- **Testcontainers** starts one PostgreSQL and one Redis container for all test classes (an xUnit
+  collection fixture) and removes them when the run ends. The app applies its own migrations on startup.
 - **Respawn** deletes all rows after each test, keeping the schema and the `schema_migrations`
   table, so every test starts from an empty database without restarting the app or the container.
 - The clock is a `FakeTimeProvider`, so token expiry times are checked exactly and expiry is tested
@@ -166,6 +170,7 @@ dotnet test Pingo.slnx
 | `ConcurrencyTests` | One refresh token used 10 times at once (forced race), one email registered 10 times at once |
 | `ValidationTests` | Email, password and refresh token length limits, invalid email, empty, null and malformed bodies |
 | `LocalizationTests` | Russian titles for every error, `?culture=ru`, language fallback order, English fallback |
+| `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
 
 The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
@@ -179,7 +184,7 @@ dotnet test Pingo.slnx --filter "Category!=Docker"
 
 Requires the .NET 10 SDK and Docker.
 
-Start PostgreSQL (local dev credentials are in `docker-compose.yml` and the API's
+Start PostgreSQL and Redis (local dev credentials are in `docker-compose.yml` and the APIs'
 `appsettings.Development.json`):
 
 ```bash

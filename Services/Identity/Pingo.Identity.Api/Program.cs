@@ -1,4 +1,6 @@
+using Hangfire;
 using Pingo.Identity;
+using Pingo.Identity.Api.Jobs;
 using Pingo.Identity.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +15,7 @@ builder.Services.AddLocalization(options => options.ResourcesPath = "Resources")
 builder.Services.AddPingoIdentity(
     builder.Configuration.GetConnectionString("Identity"),
     builder.Configuration.GetSection(JwtOptions.SectionName));
+builder.Services.AddPingoBackgroundJobs(builder.Configuration.GetConnectionString("Redis"));
 
 var app = builder.Build();
 
@@ -25,7 +28,11 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     // Swagger UI over the built-in OpenAPI document, for trying the endpoints by hand.
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Pingo Identity"));
+    // Hangfire's dashboard: scheduled, running and finished jobs. It only accepts local requests.
+    app.UseHangfireDashboard("/hangfire");
 }
+
+app.ScheduleRecurringJobs();
 
 // Picks the error message language from Accept-Language (or ?culture=ru); anything else gets English.
 app.UseRequestLocalization(options => options

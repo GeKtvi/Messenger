@@ -9,18 +9,21 @@ using Pingo.Identity.Data;
 using Respawn;
 using Respawn.Graph;
 using Testcontainers.PostgreSql;
+using Testcontainers.Redis;
 
 namespace Pingo.Identity.ComponentTests;
 
-// Starts the real Identity service in memory against PostgreSQL in a throwaway Docker container
-// (Testcontainers). The container starts once for all test classes (see IdentityCollection) and is
-// removed when they finish. Respawn empties the tables after each test, so tests don't see each
+// Starts the real Identity service in memory against PostgreSQL and Redis (Hangfire's job storage)
+// in throwaway Docker containers (Testcontainers). The containers start once for all test classes
+// (see IdentityCollection) and are removed when they finish. Respawn empties the tables after each test, so tests don't see each
 // other's data while the app and its schema stay up.
 public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17")
         .WithDatabase("pingo_identity")
         .Build();
+
+    private readonly RedisContainer _redis = new RedisBuilder("redis:8").Build();
 
     // The JWT signing key the app runs with, so tests can check token signatures.
     public const string SigningKey = "pingo-component-tests-signing-key-not-a-secret";
@@ -32,7 +35,7 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
+        await Task.WhenAll(_postgres.StartAsync(), _redis.StartAsync());
 
         // Starts the app. Its BackgroundService applies the migrations, and IdentityDatabase hands
         // out connections only after they finish, so Respawn below sees the full schema.
@@ -62,12 +65,14 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
     {
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
+        await _redis.DisposeAsync();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Identity", _postgres.GetConnectionString());
+        builder.UseSetting("ConnectionStrings:Redis", _redis.GetConnectionString());
         // appsettings.Development.json isn't loaded in Testing, so the key comes from here.
         builder.UseSetting("Jwt:SigningKey", SigningKey);
 

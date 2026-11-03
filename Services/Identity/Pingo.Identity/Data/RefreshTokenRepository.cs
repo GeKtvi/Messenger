@@ -20,6 +20,12 @@ internal class RefreshTokenRepository(IdentityDatabase database) : IRefreshToken
         WHERE token_hash = @TokenHash;
         """;
 
+    // Uses refresh_tokens_expires_at_idx, so it doesn't scan the whole table.
+    private const string DeleteExpiredSql = """
+        DELETE FROM refresh_tokens
+        WHERE expires_at < @Now;
+        """;
+
     // Npgsql reads timestamptz as a UTC DateTime, and Dapper's constructor mapping needs exact types.
     private record Row(byte[] TokenHash, Guid UserId, DateTime CreatedAt, DateTime ExpiresAt);
 
@@ -55,5 +61,11 @@ internal class RefreshTokenRepository(IdentityDatabase database) : IRefreshToken
         await connection.ExecuteAsync(new CommandDefinition(InsertSql, replacement, transaction, cancellationToken: ct));
         await transaction.CommitAsync(ct);
         return true;
+    }
+
+    public async Task<int> DeleteExpiredAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        await using var connection = await database.OpenConnectionAsync(ct);
+        return await connection.ExecuteAsync(new CommandDefinition(DeleteExpiredSql, new { Now = now }, cancellationToken: ct));
     }
 }

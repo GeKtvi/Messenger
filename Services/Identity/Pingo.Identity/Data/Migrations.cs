@@ -39,5 +39,10 @@ internal static class Migrations
 
             CREATE INDEX refresh_tokens_user_id_idx ON refresh_tokens (user_id);
             """),
+
+        // The daily cleanup deletes by expiry; without an index that's a scan of the whole table.
+        new(4, "IndexRefreshTokensByExpiry", """
+            CREATE INDEX refresh_tokens_expires_at_idx ON refresh_tokens (expires_at);
+            """),
     ];
 }

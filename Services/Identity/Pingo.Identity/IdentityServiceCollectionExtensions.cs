@@ -30,6 +30,7 @@ public static class IdentityServiceCollectionExtensions
         services.AddSingleton<IRefreshTokenRepository, RefreshTokenRepository>();
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IRefreshTokenCleanup, RefreshTokenCleanup>();
         services.TryAddSingleton(TimeProvider.System);
 
         return services;
