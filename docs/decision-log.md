@@ -1058,3 +1058,35 @@ storage (`Hangfire.Redis.StackExchange`), and an index on the expiry column.
 once, because Hangfire coordinates through Redis. The Identity service now needs Redis to start,
 including in tests. The dashboard has no login; Hangfire only lets local requests in by default,
 which is why it's left to Development.
+
+## D-053: The Message service checks Identity's JWTs itself; every endpoint requires one
+
+- **Date:** 2026-11-03
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** Stage 05 asks for JWT authorization in the Message service, with every endpoint
+protected by `[Authorize]`, so only signed-in users can send and read messages.
+
+**Decision:**
+
+- `Microsoft.AspNetCore.Authentication.JwtBearer` 10.0.14 validates `Authorization: Bearer` tokens
+  locally, with no call to Identity: issuer `pingo-identity`, audience `pingo`, the same HS256
+  signing key, only the `HS256` algorithm, and a 30-second clock skew instead of the default
+  5 minutes.
+- The settings live in the Message API's own `Jwt` section, checked at startup like Identity's
+  (`ValidateDataAnnotations` + `ValidateOnStart`). The development key in
+  `appsettings.Development.json` is the same as Identity's.
+- `MapInboundClaims = false`, so claims keep their JWT names (`sub`) when a later stage reads the
+  user id.
+- `[Authorize]` is on `MessagesController` itself, so every current and future action is protected.
+- The pipeline is `UseCors` → `UseAuthentication` → `UseAuthorization`: preflights (which never
+  carry a token) pass, and a `401` still has the CORS headers, so the frontend can see it and refresh.
+- Component tests send a token built like Identity's on every client (`ConfigureClient`), and new
+  tests cover the rejected cases.
+
+**Consequences:** Both services share one secret: whoever has the Message service's key can issue
+tokens. RS256 with Identity publishing only its public key (JWKS) would avoid that and is the
+natural next step with more services. A `401` from this service has no body, only
+`WWW-Authenticate: Bearer`. Messages still don't record who sent them. The frontend gets `401`s
+until it logs in (stage 05, step 3).

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Pingo.Messages.Api.Contracts;
@@ -5,7 +6,9 @@ using Pingo.Messages.Models;
 
 namespace Pingo.Messages.Api.Controllers;
 
+// Every endpoint needs a valid access token from the Identity service; without one the answer is 401.
 [ApiController]
+[Authorize]
 [Route("api/messages")]
 [Tags("Messages")]
 public class MessagesController(IMessageService messages) : ControllerBase

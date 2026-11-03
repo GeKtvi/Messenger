@@ -1,4 +1,5 @@
 using Pingo.Messages;
+using Pingo.Messages.Api.Auth;
 
 const string FrontendCorsPolicy = "Frontend";
 
@@ -8,6 +9,7 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 builder.Services.AddMessages(builder.Configuration.GetConnectionString("Messages"));
+builder.Services.AddPingoJwtAuthentication(builder.Configuration.GetSection(JwtValidationOptions.SectionName));
 
 builder.Services.AddCors(options =>
 {
@@ -27,7 +29,11 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+// CORS runs first, so preflight requests (which never carry a token) succeed, and a 401 still has
+// the CORS headers the browser needs to let the frontend read it and refresh its token.
 app.UseCors(FrontendCorsPolicy);
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

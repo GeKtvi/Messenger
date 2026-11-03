@@ -1,14 +1,18 @@
 @Host = http://localhost:5230
 @MessageId = 3f2504e0-4f89-41d3-9a0c-0305e82c3301
+# Paste the accessToken from POST http://localhost:5240/api/auth/login (valid for 15 minutes).
+@AccessToken = paste-an-access-token-here
 
 GET {{Host}}/api/messages
 Accept: application/json
+Authorization: Bearer {{AccessToken}}
 
 ###
 
 # Creates the message (201) the first time, returns it unchanged (200) on repeats.
 PUT {{Host}}/api/messages/{{MessageId}}
 Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
 
 {
   "text": "Hello from the .http file!"
@@ -19,6 +23,7 @@ Content-Type: application/json
 # Same id, new text: updates the text and sets updatedAt (200).
 PUT {{Host}}/api/messages/{{MessageId}}
 Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
 
 {
   "text": "Hello again, edited!"

@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -28,6 +29,8 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
 
         // AddMessages requires a connection string. It's never used: the database is replaced below.
         builder.UseSetting("ConnectionStrings:Messages", "Host=unused-in-tests");
+        // appsettings.Development.json isn't loaded in Testing, so the key comes from here.
+        builder.UseSetting("Jwt:SigningKey", TestAccessTokens.SigningKey);
 
         builder.ConfigureTestServices(services =>
         {
@@ -40,6 +43,14 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Time);
         });
+    }
+
+    // Every client sends a valid access token, as a signed-in frontend would. Tests about
+    // authorization clear or replace the header.
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAccessTokens.Create());
     }
 
     private protected MessageDbContext CreateDbContext(IServiceScope scope) =>

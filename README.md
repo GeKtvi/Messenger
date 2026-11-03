@@ -57,6 +57,11 @@ Pingo.slnx
 | GET    | `/api/messages`               | Returns all messages, oldest first |
 | PUT    | `/api/messages/{messageId}`   | Sends a message (`{ "text": "..." }`). Idempotent, see below |
 
+Every endpoint needs an access token from the Identity service, sent as
+`Authorization: Bearer <accessToken>`. Without a valid one (missing, expired, tampered, or from
+another issuer or audience) the answer is `401`. The service checks the token itself with the same
+`Jwt` issuer, audience and signing key as Identity, so it never calls Identity per request.
+
 Each message has a `sentAt` time and an `updatedAt` time, which is `null` until the message is edited.
 
 Sending is idempotent. The client picks the message id (a `Guid`):
@@ -141,13 +146,16 @@ dotnet test Pingo.slnx
 `WebApplicationFactory` and talks to it over HTTP (xUnit, FluentAssertions):
 
 - The app starts once per test class (`IClassFixture`), and the database is emptied before each test.
+- Every client sends a valid access token built like Identity's (`TestAccessTokens`), so the tests
+  don't need the Identity service running.
 - The clock is a `FakeTimeProvider`, so send and edit times can be checked exactly.
 
 | Test class | Database | Covers |
 |---|---|---|
 | `MessagesApiTests` | EF Core in-memory | Listing, sending, ordering, editing, trimming, length limit, validation errors |
 | `MessagesIdempotencyTests` | EF Core in-memory | Repeated requests, repeated and multiple edits, whitespace, stale retries |
-| `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins |
+| `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins, preflights without a token, CORS headers on a 401 |
+| `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
 | `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
 

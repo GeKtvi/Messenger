@@ -24,6 +24,34 @@ public class MessagesCorsTests(MessagesApiFactory factory) : IClassFixture<Messa
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
         response.Headers.GetValues("Access-Control-Allow-Origin").Should().Equal(AllowedOrigin);
         response.Headers.GetValues("Access-Control-Allow-Methods").Should().Contain("PUT");
+        response.Headers.GetValues("Access-Control-Allow-Headers").Should().Contain(h => h.Contains("authorization"));
+    }
+
+    [Fact]
+    public async Task Preflight_WithoutAToken_IsNotRejected()
+    {
+        // Browsers never send the Authorization header on a preflight, so it must pass without one.
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await client.SendAsync(Preflight(AllowedOrigin));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Unauthorized_FromAllowedOrigin_StillHasAllowOriginHeader()
+    {
+        // Without it, the browser hides the 401 from the frontend, which then can't refresh its token.
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = null;
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/messages");
+        request.Headers.Add("Origin", AllowedOrigin);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Headers.GetValues("Access-Control-Allow-Origin").Should().Equal(AllowedOrigin);
     }
 
     [Fact]
@@ -50,7 +78,7 @@ public class MessagesCorsTests(MessagesApiFactory factory) : IClassFixture<Messa
         var request = new HttpRequestMessage(HttpMethod.Options, $"/api/messages/{Guid.NewGuid()}");
         request.Headers.Add("Origin", origin);
         request.Headers.Add("Access-Control-Request-Method", "PUT");
-        request.Headers.Add("Access-Control-Request-Headers", "content-type");
+        request.Headers.Add("Access-Control-Request-Headers", "authorization,content-type");
         return request;
     }
 }
