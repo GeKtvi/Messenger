@@ -19,7 +19,8 @@ public static class IdentityServiceCollectionExtensions
         services.AddSingleton(new IdentityDatabase(connectionString));
         services.AddHostedService<DatabaseMigrator>();
 
-        // A missing or too short signing key fails at startup, not on the first login.
+        // A missing or too short signing key, or a lifetime out of range, fails at startup, not on the
+        // first login.
         services.AddOptions<JwtOptions>().Bind(jwtSection).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<TokenFactory>();
 

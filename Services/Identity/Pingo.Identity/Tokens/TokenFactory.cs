@@ -21,7 +21,9 @@ internal class TokenFactory(IOptions<JwtOptions> options)
     // A signed JWT that other services can check without calling Identity. It carries only the user id.
     public AccessToken CreateAccessToken(Guid userId, DateTimeOffset now)
     {
-        var expiresAt = now + _options.AccessTokenLifetime;
+        // JWT times ("exp" included) are whole seconds, so the expiry is rounded down to match: the
+        // response then says exactly when the token stops working, not up to a second later.
+        var expiresAt = DateTimeOffset.FromUnixTimeSeconds((now + _options.AccessTokenLifetime).ToUnixTimeSeconds());
 
         var token = _handler.CreateToken(new SecurityTokenDescriptor
         {

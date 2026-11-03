@@ -43,7 +43,8 @@ Pingo.slnx
 │   │   └── Pingo.Messages.ComponentTests   # Component tests: the whole service over HTTP, in-memory DB
 │   └── Identity/
 │       ├── Pingo.Identity.Api              # API layer: registration, login, token refresh (Swagger UI)
-│       └── Pingo.Identity                  # Business layer: users, password hashing, tokens
+│       ├── Pingo.Identity                  # Business layer: users, password hashing, tokens
+│       └── Pingo.Identity.ComponentTests   # Component tests: the whole service over HTTP, real PostgreSQL
 └── Frontend/
     └── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
 ```
@@ -145,8 +146,29 @@ dotnet test Pingo.slnx
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
 | `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
 
+`Pingo.Identity.ComponentTests` runs the real Identity service the same way, always against PostgreSQL:
+
+- **Testcontainers** starts one PostgreSQL container for all test classes (an xUnit collection
+  fixture) and removes it when the run ends. The app applies its own migrations on startup.
+- **Respawn** deletes all rows after each test, keeping the schema and the `schema_migrations`
+  table, so every test starts from an empty database without restarting the app or the container.
+- The clock is a `FakeTimeProvider`, so token expiry times are checked exactly and expiry is tested
+  by moving the clock forward.
+
+| Test class | Covers |
+|---|---|
+| `RegisterTests` | Successful registration, email taken (also in other letter case) |
+| `LoginTests` | Successful login (token lifetimes, `sub` claim), email case, unknown email, wrong password |
+| `RefreshTests` | Successful refresh, rotated, used, expired and unknown tokens, session end and its boundary, two sessions |
+| `AccessTokenTests` | JWT signature and key, exact claims, `exp` matching the response, unique `jti`, refreshed token |
+| `StorageTests` | Normalized email, salted PBKDF2 hash, refresh token stored as SHA-256, no orphan users, microsecond times |
+| `ConcurrencyTests` | One refresh token used 10 times at once (forced race), one email registered 10 times at once |
+| `ValidationTests` | Email, password and refresh token length limits, invalid email, empty, null and malformed bodies |
+| `LocalizationTests` | Russian titles for every error, `?culture=ru`, language fallback order, English fallback |
+| `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
+
 The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
-every insert until all requests have reached it, then releases them together. To skip them:
+every insert until all requests have reached it, then releases them together. To skip all Docker tests:
 
 ```bash
 dotnet test Pingo.slnx --filter "Category!=Docker"

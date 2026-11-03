@@ -16,6 +16,10 @@ builder.Services.AddPingoIdentity(
 
 var app = builder.Build();
 
+// Turns an unhandled exception into a 500 Problem Details response (with a traceId, without the
+// exception's details), so even a crash answers in the same format as every other error.
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -32,3 +36,6 @@ app.UseRequestLocalization(options => options
 app.MapControllers();
 
 app.Run();
+
+// Lets the component tests start the app through WebApplicationFactory<Program>.
+public partial class Program;

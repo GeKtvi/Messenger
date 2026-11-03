@@ -1,0 +1,88 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Time.Testing;
+using Npgsql;
+using Pingo.Identity.Data;
+using Respawn;
+using Respawn.Graph;
+using Testcontainers.PostgreSql;
+
+namespace Pingo.Identity.ComponentTests;
+
+// Starts the real Identity service in memory against PostgreSQL in a throwaway Docker container
+// (Testcontainers). The container starts once for all test classes (see IdentityCollection) and is
+// removed when they finish. Respawn empties the tables after each test, so tests don't see each
+// other's data while the app and its schema stay up.
+public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17")
+        .WithDatabase("pingo_identity")
+        .Build();
+
+    // The JWT signing key the app runs with, so tests can check token signatures.
+    public const string SigningKey = "pingo-component-tests-signing-key-not-a-secret";
+
+    private Respawner _respawner = null!;
+
+    // Tests control "now" through this clock instead of the system clock.
+    public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+
+    public async Task InitializeAsync()
+    {
+        await _postgres.StartAsync();
+
+        // Starts the app. Its BackgroundService applies the migrations, and IdentityDatabase hands
+        // out connections only after they finish, so Respawn below sees the full schema.
+        await using (await Services.GetRequiredService<IdentityDatabase>().OpenConnectionAsync())
+        {
+        }
+
+        await using var connection = await OpenConnectionAsync();
+        _respawner = await Respawner.CreateAsync(connection, new RespawnerOptions
+        {
+            DbAdapter = DbAdapter.Postgres,
+            SchemasToInclude = ["public"],
+            // The applied-migrations list is schema, not data: clearing it would make the next
+            // start try to apply every migration again.
+            TablesToIgnore = [new Table("public", "schema_migrations")],
+        });
+    }
+
+    // Deletes all rows, in foreign-key order, from every table except schema_migrations.
+    public async Task ResetDatabaseAsync()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await _respawner.ResetAsync(connection);
+    }
+
+    async Task IAsyncLifetime.DisposeAsync()
+    {
+        await base.DisposeAsync();
+        await _postgres.DisposeAsync();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.UseSetting("ConnectionStrings:Identity", _postgres.GetConnectionString());
+        // appsettings.Development.json isn't loaded in Testing, so the key comes from here.
+        builder.UseSetting("Jwt:SigningKey", SigningKey);
+
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(Time);
+        });
+    }
+
+    // A direct connection to the test database, for checking what the app stored.
+    public async Task<NpgsqlConnection> OpenConnectionAsync()
+    {
+        var connection = new NpgsqlConnection(_postgres.GetConnectionString());
+        await connection.OpenAsync();
+        return connection;
+    }
+}

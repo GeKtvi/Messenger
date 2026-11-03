@@ -959,3 +959,71 @@ in every signature. The error `switch` still needs a `_ => throw` arm, because C
 enum switches for completeness. `result.Value` throws when read on a failure, so the `IsFailure`
 check has to come first. The library's chaining (`Bind`, `Map`, `Ensure`) isn't used: each flow has
 one or two early exits, and plain `if`s read better there.
+
+## D-050: Identity component tests on a shared Testcontainers PostgreSQL, reset with Respawn
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Accepted
+
+**Context:** Stage 04 asks for Identity component tests that start PostgreSQL automatically with
+Testcontainers, remove it afterwards, and use Respawn to return the database to its initial state
+after each test. The Identity service uses Dapper with hand-written SQL, so there's no in-memory
+database to fall back on (unlike the Message tests, D-027).
+
+**Decision:**
+
+- New `Pingo.Identity.ComponentTests` project (xUnit 2, FluentAssertions 7, `Mvc.Testing`,
+  Testcontainers.PostgreSql 4.16, Respawn 7.0, `FakeTimeProvider`), in the solution.
+- `IdentityApiFactory : WebApplicationFactory<Program>` is an xUnit **collection** fixture: one
+  `postgres:17` container and one app for all Identity test classes. The classes in one collection
+  run one after another, which a shared database needs.
+- The app runs in the `Testing` environment with the container's connection string and a test JWT
+  signing key. It applies its own migrations at startup; the factory waits for them through
+  `IdentityDatabase.OpenConnectionAsync()` (`InternalsVisibleTo` the test project), then builds the
+  Respawner from the migrated schema.
+- Respawn deletes all rows in the `public` schema **after each test** (`IAsyncLifetime.DisposeAsync`
+  in `IdentityTestBase`), except `schema_migrations`.
+- Problems are checked by status, media type, `type` URN and English title, so a wrong resource key
+  shows up as a failing title. One test checks the Russian title.
+- All Identity tests carry `[Trait("Category", "Docker")]`, so `--filter "Category!=Docker"` skips
+  them as it skips the Message PostgreSQL tests.
+
+- Concurrent refreshes go through `FindGateRefreshTokenRepository`, which holds every request after
+  it has found the token until all of them have, so the race is forced on every run instead of left
+  to timing (as `InsertGate` does for the Message service).
+- Storage checks read the tables directly over a separate Npgsql connection with Dapper.
+
+**Consequences:** 53 tests cover the six required scenarios plus validation limits, JWT contents,
+storage (hashes only, microsecond times), forced concurrency, session expiry, localization, startup
+validation and crash handling. They run in about four seconds after the container starts.
+Deliberately breaking the reset, the expiry check, the login errors, the time rounding, the refresh
+race check, the unique-constraint name and a Russian resource key each made the matching tests fail. Tests can't run in parallel against
+the shared database. The `FakeTimeProvider` only moves forward, so later tests run at a later "now";
+tests compare against `Factory.Time` instead of fixed dates.
+
+## D-051: Fixes from the Identity test review: whole-second expiry, lifetime ranges, crash handling
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Accepted
+
+**Context:** A review of missing Identity tests found three defects. JWT times are whole seconds,
+but `accessTokenExpiresAt` kept microseconds, so a token stopped working up to a second before the
+response said. `AccessTokenLifetime` and `RefreshTokenLifetime` weren't validated, so `00:00:00`
+started fine and broke every login. And with no exception handler, a crash returned a `500` with
+an empty body, unlike every other error.
+
+**Decision:**
+
+- `TokenFactory` rounds the access token's expiry down to whole seconds, so `accessTokenExpiresAt`
+  equals the token's `exp`.
+- `JwtOptions` limits `AccessTokenLifetime` to 1 minute–1 day and `RefreshTokenLifetime` to
+  1 minute–365 days (`[Range]`), checked at startup like the signing key.
+- `app.UseExceptionHandler()` turns unhandled exceptions into a `500` Problem Details response with
+  a `traceId` and without the exception's details, written through the same `IProblemDetailsService`.
+
+**Consequences:** Each fix has a test that fails without it. Two review findings stay as they are:
+whitespace-only passwords are rejected as "required" (the `[Required]` rule, despite D-039's
+"length only"), and the email length is checked before trimming. Also left: two instances creating
+the database at the same moment can fail with `23505` instead of the caught `42P04`.

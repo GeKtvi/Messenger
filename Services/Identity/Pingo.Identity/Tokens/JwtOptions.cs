@@ -34,10 +34,13 @@ public class JwtOptions
     // How long an access token works. Written into the "exp" claim. A JWT can't be revoked once
     // issued (services check it on their own, without asking us), so a short lifetime limits the
     // damage if one leaks. When it expires, the client uses the refresh token to get a new one.
+    // At least a minute: a zero lifetime would make every token invalid as it's issued.
+    [Range(typeof(TimeSpan), "00:01:00", "1.00:00:00")]
     public TimeSpan AccessTokenLifetime { get; set; } = TimeSpan.FromMinutes(15);
 
     // How long a refresh token works. It isn't a JWT: it's a random string that is only valid while
     // its hash is in our database, so it can be revoked at any time. This is how long a user stays
     // signed in without entering the password again.
+    [Range(typeof(TimeSpan), "00:01:00", "365.00:00:00")]
     public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(30);
 }

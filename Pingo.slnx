@@ -12,6 +12,7 @@
   <Folder Name="/Services/" />
   <Folder Name="/Services/Identity/">
     <Project Path="Services/Identity/Pingo.Identity.Api/Pingo.Identity.Api.csproj" />
+    <Project Path="Services/Identity/Pingo.Identity.ComponentTests/Pingo.Identity.ComponentTests.csproj" />
     <Project Path="Services/Identity/Pingo.Identity/Pingo.Identity.csproj" />
   </Folder>
   <Folder Name="/Services/Message/">
