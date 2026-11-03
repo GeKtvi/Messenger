@@ -1,4 +1,6 @@
-using Pingo.Identity.Models;
+using Pingo.Identity.Models.LoginResults;
+using Pingo.Identity.Models.RefreshResults;
+using Pingo.Identity.Models.RegistrationResults;
 
 namespace Pingo.Identity;
 

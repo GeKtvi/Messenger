@@ -1,7 +1,13 @@
 using Pingo.Identity.Data;
 using Pingo.Identity.Models;
+using Pingo.Identity.Models.LoginResults;
+using Pingo.Identity.Models.RefreshResults;
+using Pingo.Identity.Models.RegistrationResults;
 using Pingo.Identity.Passwords;
 using Pingo.Identity.Tokens;
+using LoginResults = Pingo.Identity.Models.LoginResults;
+using RefreshResults = Pingo.Identity.Models.RefreshResults;
+using RegistrationResults = Pingo.Identity.Models.RegistrationResults;
 
 namespace Pingo.Identity;
 
@@ -14,9 +20,6 @@ internal class AuthService(
     TokenFactory tokens,
     TimeProvider time) : IAuthService
 {
-    // Checked when the email is unknown, so a login takes as long whether or not the email exists.
-    private static readonly Lazy<PasswordHash> DummyHash = new(() => PasswordHasher.Hash(Guid.NewGuid().ToString()));
-
     public async Task<RegistrationResult> RegisterAsync(string email, string password, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
@@ -27,8 +30,8 @@ internal class AuthService(
         var login = new PasswordLogin(user.Id, NormalizeEmail(email), PasswordHasher.Hash(password), now);
 
         return await users.TryCreateWithPasswordLoginAsync(user, login, ct)
-            ? new RegistrationResult.Registered(user.Id, user.RegisteredAt)
-            : new RegistrationResult.EmailTaken();
+            ? new RegistrationResults.Registered(user.Id, user.RegisteredAt)
+            : RegistrationResults.EmailTaken.Default;
     }
 
     public async Task<LoginResult> LoginAsync(string email, string password, CancellationToken ct = default)
@@ -37,15 +40,17 @@ internal class AuthService(
         ArgumentException.ThrowIfNullOrEmpty(password);
 
         var login = await passwordLogins.FindByEmailAsync(NormalizeEmail(email), ct);
-        if (!PasswordHasher.Verify(password, login?.Password ?? DummyHash.Value) || login is null)
-            return new LoginResult.InvalidCredentials();
+        if (login is null)
+            return LoginResults.UserNotFound.Default;
+        if (!PasswordHasher.Verify(password, login.Password))
+            return LoginResults.WrongPassword.Default;
 
         var now = Now();
         var accessToken = tokens.CreateAccessToken(login.UserId, now);
         var refreshToken = tokens.CreateRefreshToken(now);
         await refreshTokens.AddAsync(new StoredRefreshToken(refreshToken.Hash, login.UserId, now, refreshToken.ExpiresAt), ct);
 
-        return new LoginResult.Succeeded(login.UserId, new AuthTokens(
+        return new LoginResults.Succeeded(new AuthTokens(
             accessToken.Value, accessToken.ExpiresAt, refreshToken.Value, refreshToken.ExpiresAt));
     }
 
@@ -57,7 +62,7 @@ internal class AuthService(
         var oldHash = TokenFactory.HashRefreshToken(refreshToken);
         var stored = await refreshTokens.FindAsync(oldHash, ct);
         if (stored is null || stored.ExpiresAt <= now)
-            return new RefreshResult.InvalidToken();
+            return RefreshResults.InvalidToken.Default;
 
         // The new refresh token keeps the old expiry: a session lasts RefreshTokenLifetime from login,
         // however often it's refreshed, so a stolen token can't keep a session alive forever.
@@ -66,14 +71,14 @@ internal class AuthService(
         var replacement = new StoredRefreshToken(newRefreshToken.Hash, stored.UserId, now, newRefreshToken.ExpiresAt);
 
         if (!await refreshTokens.TryReplaceAsync(oldHash, replacement, ct))
-            return new RefreshResult.InvalidToken();
+            return RefreshResults.InvalidToken.Default;
 
-        return new RefreshResult.Succeeded(stored.UserId, new AuthTokens(
+        return new RefreshResults.Succeeded(new AuthTokens(
             accessToken.Value, accessToken.ExpiresAt, newRefreshToken.Value, newRefreshToken.ExpiresAt));
     }
 
     // Emails are case-insensitive in practice, so "Ann@Example.com" and "ann@example.com" are one account.
-    internal static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 
     // PostgreSQL stores times to the microsecond, so round down to match what reads return.
     private DateTimeOffset Now()

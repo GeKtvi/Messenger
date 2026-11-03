@@ -92,7 +92,7 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 | Method | Route                | Description |
 |--------|----------------------|-------------|
 | POST   | `/api/auth/register` | Registers `{ "email": "...", "password": "..." }`. Returns `201` with the user id, `409` if the email is taken |
-| POST   | `/api/auth/login`    | Signs in with `{ "email": "...", "password": "..." }`. Returns an access token and a refresh token, or `401` |
+| POST   | `/api/auth/login`    | Signs in with `{ "email": "...", "password": "..." }`. Returns an access token and a refresh token, or `401` (unknown email, or wrong password) |
 | POST   | `/api/auth/refresh`  | Exchanges `{ "refreshToken": "..." }` for a new access token and a new refresh token, or `401` |
 
 - **Storage:** users and their email/password sign-ins are kept in separate tables (`users`,
@@ -105,6 +105,13 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 - **Refresh token:** a random 256-bit string. Only its SHA-256 hash is stored. Each refresh token
   works once: refreshing returns a new one and invalidates the old one. The session ends 30 days
   after login, however often it's refreshed.
+- **Errors:** RFC 7807 problems (`application/problem+json`). Tell them apart by `type`
+  (`urn:pingo:problem:email-taken`, `user-not-found`, `wrong-password`, `invalid-refresh-token`).
+  The `title` is in English, or in Russian when the request sends `Accept-Language: ru`.
+- **Deviation from homework 04:** errors aren't built with the controller's `Problem()` method as
+  the task asks. They use `TypedResults.Problem()` wrapped in our own `ConflictProblem` and
+  `UnauthorizedProblem` result types, so the signatures document every response. That's cleaner and
+  reusable, but over-engineered for a service this size (D-047, D-048).
 
 ## Frontend: pending messages
 

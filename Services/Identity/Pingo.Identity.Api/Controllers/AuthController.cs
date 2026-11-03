@@ -1,65 +1,72 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Localization;
 using Pingo.Identity.Api.Contracts;
+using Pingo.Identity.Api.HttpResults;
+using Pingo.Identity.Api.OpenApi;
 using Pingo.Identity.Models;
+using LoginResults = Pingo.Identity.Models.LoginResults;
+using RefreshResults = Pingo.Identity.Models.RefreshResults;
+using RegistrationResults = Pingo.Identity.Models.RegistrationResults;
 
 namespace Pingo.Identity.Api.Controllers;
 
+// Errors are RFC 7807 problems written by TypedResults.Problem() (wrapped in ConflictProblem and
+// UnauthorizedProblem), not ControllerBase.Problem() as the stage 04 task suggests (D-047, D-048).
+// The title is localized from the request's Accept-Language, so clients should tell errors apart
+// by the stable "type" URN instead.
 [ApiController]
 [Route("api/auth")]
 [Tags("Auth")]
-public class AuthController(IAuthService auth) : ControllerBase
+public class AuthController(IAuthService auth, IStringLocalizer<ErrorMessages> messages) : ControllerBase
 {
     // Invalid bodies never reach here: [ApiController] returns 400 ValidationProblem automatically.
     [HttpPost("register")]
-    [ProducesResponseType<HttpValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
-    public async Task<Results<Created<RegisterResponse>, Conflict<ProblemDetails>>> Register(
+    [ProducesValidationProblem]
+    public async Task<Results<Created<RegisterResponse>, ConflictProblem>> Register(
         RegisterRequest request, CancellationToken ct)
     {
         var result = await auth.RegisterAsync(request.Email, request.Password, ct);
 
         return result switch
         {
-            RegistrationResult.Registered user =>
+            RegistrationResults.Registered user =>
                 TypedResults.Created((string?)null, new RegisterResponse(user.UserId, user.RegisteredAt)),
-            RegistrationResult.EmailTaken => TypedResults.Conflict(new ProblemDetails
-            {
-                Title = "Email is already registered.",
-                Status = StatusCodes.Status409Conflict,
-            }),
+            RegistrationResults.EmailTaken =>
+                TypedResults.EmailTaken(messages),
             _ => throw new InvalidOperationException($"Unexpected registration result {result}."),
         };
     }
 
     [HttpPost("login")]
-    [ProducesResponseType<HttpValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
-    public async Task<Results<Ok<TokenResponse>, ProblemHttpResult>> Login(LoginRequest request, CancellationToken ct)
+    [ProducesValidationProblem]
+    public async Task<Results<Ok<TokenResponse>, UnauthorizedProblem>> Login(LoginRequest request, CancellationToken ct)
     {
         var result = await auth.LoginAsync(request.Email, request.Password, ct);
 
         return result switch
         {
-            LoginResult.Succeeded login => TypedResults.Ok(ToResponse(login.Tokens)),
-            LoginResult.InvalidCredentials => TypedResults.Problem(
-                title: "Invalid email or password.", statusCode: StatusCodes.Status401Unauthorized),
+            LoginResults.Succeeded login => TypedResults.Ok(ToResponse(login.Tokens)),
+            LoginResults.UserNotFound =>
+                TypedResults.UserNotFound(messages),
+            LoginResults.WrongPassword =>
+                TypedResults.WrongPassword(messages),
             _ => throw new InvalidOperationException($"Unexpected login result {result}."),
         };
     }
 
     // Returns a new access token and a new refresh token; the refresh token sent in is used up.
     [HttpPost("refresh")]
-    [ProducesResponseType<HttpValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
-    public async Task<Results<Ok<TokenResponse>, ProblemHttpResult>> Refresh(RefreshRequest request, CancellationToken ct)
+    [ProducesValidationProblem]
+    public async Task<Results<Ok<TokenResponse>, UnauthorizedProblem>> Refresh(RefreshRequest request, CancellationToken ct)
     {
         var result = await auth.RefreshAsync(request.RefreshToken, ct);
 
         return result switch
         {
-            RefreshResult.Succeeded refresh => TypedResults.Ok(ToResponse(refresh.Tokens)),
-            RefreshResult.InvalidToken => TypedResults.Problem(
-                title: "Invalid or expired refresh token.", statusCode: StatusCodes.Status401Unauthorized),
+            RefreshResults.Succeeded refresh => TypedResults.Ok(ToResponse(refresh.Tokens)),
+            RefreshResults.InvalidToken =>
+                TypedResults.InvalidRefreshToken(messages),
             _ => throw new InvalidOperationException($"Unexpected refresh result {result}."),
         };
     }

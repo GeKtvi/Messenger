@@ -745,7 +745,7 @@ never deleted yet, so a cleanup job will be needed later.
 
 - **Date:** 2026-11-02
 - **Stage:** 03
-- **Status:** Accepted
+- **Status:** Superseded by D-045
 
 **Context:** Login must return `401 Unauthorized` for wrong credentials. Saying which part was wrong,
 or answering faster for unknown emails, would tell an attacker which emails are registered.
@@ -817,3 +817,114 @@ session outlives its 30 days. Two limits remain: reusing an already rotated toke
 theft (a full implementation would then revoke all of that user's tokens), and a client that loses
 the response to a refresh (for example, a dropped connection) has to log in again, because its old
 token is already used up.
+
+## D-045: Login says whether the email or the password was wrong
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Accepted
+
+**Context:** Stage 04 asks login to return separate errors for an unknown email ("user not found")
+and a wrong password. D-042 deliberately returned one generic `401` so login couldn't reveal which
+emails are registered.
+
+**Decision:** Follow the homework. `POST /api/auth/login` returns `401` with problem type
+`urn:pingo:problem:user-not-found` for an unknown email and `urn:pingo:problem:wrong-password` for a
+wrong password. Both stay `401`: the request is a failed sign-in either way. The dummy hash check
+for unknown emails is removed: once the response says the email is unknown, equal timing hides
+nothing.
+
+**Consequences:** Login now reveals whether an email is registered, as registration already did
+(D-039). Unknown emails are answered without the ~66 ms hash cost, so login is a cheap way to test
+emails in bulk. Rate limiting would be the mitigation; it's not in scope yet.
+
+## D-046: Errors are Problem Details with a stable type URN and a localized title
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Superseded by D-047
+
+**Context:** Stage 04 asks for clear RFC 7807 errors built with the controller's `Problem()`
+method. Localizing the messages was added as an extra.
+
+**Decision:**
+
+- `AuthController` returns errors with `ControllerBase.Problem(type, title, statusCode)`, so they
+  get `application/problem+json` and a `traceId` from the standard `ProblemDetailsFactory`.
+  Actions return `ActionResult<T>` instead of `Results<...>` unions, with `[ProducesResponseType]`
+  attributes describing each status for OpenAPI.
+- Each error has a fixed `type` URN (`urn:pingo:problem:email-taken`, `user-not-found`,
+  `wrong-password`, `invalid-refresh-token`). Clients and tests should check `type`, never the text.
+  URNs avoid inventing a web domain for problem types.
+- `title` is localized with `IStringLocalizer<ErrorMessages>` and `.resx` files in the API's
+  `Resources/` folder: English (default) and Russian. `UseRequestLocalization` picks the language
+  from `Accept-Language` (or `?culture=`); unsupported languages get English.
+- Localization lives in the API project: the business layer returns result values, not texts.
+
+**Consequences:** Adding a language is one `.resx` file plus one entry in the supported cultures.
+Model validation errors (`400`) are still English only; `AddDataAnnotationsLocalization` could
+cover them later.
+
+## D-047: Build errors with `TypedResults.Problem()`, not `ControllerBase.Problem()` (deviates from the task)
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Accepted
+
+**Context:** Stage 04 says to build errors with the controller's `Problem()` method. D-046 did that,
+which meant changing the actions from `Results<...>` unions to `ActionResult<T>`: `Problem()` returns
+an MVC `ObjectResult`, which isn't an `IResult` and so can't be part of a `Results<...>` union.
+
+**Decision:** Deliberately deviate from the task and keep `TypedResults`:
+
+- Actions return `Results<Created<RegisterResponse>, ProblemHttpResult>` and
+  `Results<Ok<TokenResponse>, ProblemHttpResult>`, and errors are built with `TypedResults.Problem()`.
+- `AddProblemDetails()` is registered, so `TypedResults.Problem()` writes through
+  `IProblemDetailsService` and gets the same `traceId` as MVC's automatic `400` validation problems.
+- Everything else from D-046 stays: RFC 7807 bodies (`application/problem+json`), a stable `type` URN
+  per error (`urn:pingo:problem:email-taken`, `user-not-found`, `wrong-password`,
+  `invalid-refresh-token`), and a `title` localized from `Accept-Language` through
+  `IStringLocalizer<ErrorMessages>` with English and Russian `.resx` files.
+
+**Consequences:** The signature lists each action's responses and the compiler checks them, and
+OpenAPI reads the success responses (`200`, `201`) from it. `ProblemHttpResult` doesn't say which
+status it carries, so `[ProducesResponseType]` attributes still document `400`, `401` and `409`.
+This is the same style as stage 03 and as `MessagesController`. The task's `Problem()` requirement is
+not met as written; the result on the wire is the same Problem Details format.
+
+## D-048: Our own problem result types, created through `TypedResults` extension members
+
+- **Date:** 2026-11-03
+- **Stage:** 04
+- **Status:** Accepted
+
+**Context:** `AuthController` built its errors through a private `Error(status, code, key)` helper
+that returned `ProblemHttpResult`. That read differently from the built-in `TypedResults.Ok(...)`
+next to it, and `ProblemHttpResult` doesn't say which status it carries, so every `401` and `409`
+needed a `[ProducesResponseType]` attribute for OpenAPI.
+
+**Decision:**
+
+- `ConflictProblem` (`409`) and `UnauthorizedProblem` (`401`) in `Pingo.Identity.Api.HttpResults`
+  wrap a `ProblemHttpResult` from `TypedResults.Problem()`, so the response is unchanged:
+  `application/problem+json`, the `type` URN (D-047), the localized `title` and a `traceId`.
+  Each type implements `IEndpointMetadataProvider` and reports its own status, so
+  `Results<Created<RegisterResponse>, ConflictProblem>` documents the `409` without an attribute.
+- C# 14 static extension members add one method per error to `TypedResults`:
+  `TypedResults.EmailTaken(messages)`, `UserNotFound(messages)`, `WrongPassword(messages)` and
+  `InvalidRefreshToken(messages)`. Each sets the code and the localized title, so every error is
+  defined in exactly one place.
+- `[ProducesValidationProblem]` replaces the long `[ProducesResponseType]` for the automatic `400`.
+  The return type can't describe that one, because the action never runs.
+
+**Homework deviation (explicit):** stage 04 asks for errors built with the controller's `Problem()`
+method. This design deliberately doesn't use it: errors go through `TypedResults.Problem()` inside
+our own result types (D-047). It's the cleaner solution and ready to reuse in other services, but
+it's over-engineered for a service of this size (four errors, three endpoints). The wire format is
+the Problem Details the task asks for.
+
+**Consequences:** The signatures list every response except the automatic `400`, and the compiler
+checks them; a status, code or message can't be mismatched at a call site. The generated OpenAPI
+document is the same as with the attributes. This is project-specific infrastructure that the
+framework doesn't provide, and a new status needs one more small result type. Extension members
+need C# 14, the default for .NET 10.
