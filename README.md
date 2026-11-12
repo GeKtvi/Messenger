@@ -47,7 +47,8 @@ Pingo.slnx
 │       ├── Pingo.Identity                  # Business layer: users, password hashing, tokens
 │       └── Pingo.Identity.ComponentTests   # Component tests: the whole service over HTTP, real PostgreSQL
 └── Frontend/
-    └── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
+    ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
+    └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
 ```
 
 ## Message service API
@@ -138,6 +139,12 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
   new login while the 30-day session lasts.
 - Every Message API request carries `Authorization: Bearer <access token>`, added by
   `AccessTokenHandler` (a `DelegatingHandler` on the typed `HttpClient`).
+- When the access token has expired, the Message API answers `401`. The handler then refreshes it
+  through the cookie and sends the request once more, so the user doesn't notice. Stream bodies
+  aren't resent (they may already be consumed, and buffering them would cost memory); the token is
+  still refreshed for the caller's next attempt. Requests that get
+  `401` at the same time share one refresh, because each refresh token works only once. If the
+  session has ended, the login form comes back.
 - **Log out** ends the session in Identity and clears unsent messages.
 
 ## Frontend: pending messages
@@ -197,6 +204,11 @@ dotnet test Pingo.slnx
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
+
+`Pingo.Frontend.Tests` checks the frontend's `AccessTokenHandler` with a real `AuthSession`
+against fake Message and Identity APIs: the bearer header, refresh and retry on `401`, one shared
+refresh for parallel `401`s, signing out when the session has ended, and resending the request body.
+It needs no browser or Docker.
 
 The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
 every insert until all requests have reached it, then releases them together. To skip all Docker tests:

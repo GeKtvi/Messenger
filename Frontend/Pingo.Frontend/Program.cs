@@ -18,7 +18,7 @@ var identityApiUrl = builder.Configuration["IdentityApi:BaseUrl"]
 // Sign-in: the session holds the access token in memory; Identity keeps the refresh token in an
 // HttpOnly cookie (D-054).
 builder.Services.AddHttpClient<IdentityApiClient>(client => client.BaseAddress = new Uri(identityApiUrl));
-builder.Services.AddSingleton<AuthSession>();
+builder.Services.AddSingleton<IAuthSession, AuthSession>();
 builder.Services.AddSingleton<AuthenticationStateProvider, PingoAuthenticationStateProvider>();
 builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();

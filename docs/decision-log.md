@@ -1155,3 +1155,56 @@ login, and add `Authorization: Bearer {access_token}` to every request.
 **Consequences:** When the access token expires after 15 minutes, requests get `401` until step 4's
 refresh-on-401 handler. The user id is read from the token only for display; the browser never
 checks signatures. Messages still don't show who sent them.
+
+## D-056: Refresh on 401 in the frontend's token handler, single-flight, one retry
+
+- **Date:** 2026-11-12
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** Stage 05 asks for a `DelegatingHandler` that catches `401` from the backend, refreshes
+the tokens, and repeats the original request with the new access token.
+
+**Decision:**
+
+- `AccessTokenHandler` (from D-055) now handles `401`: it refreshes through the cookie and sends the
+  same request once more with the new token. A `401` after that is returned as it is: a fresh token
+  being rejected isn't something another refresh would fix.
+- If the refresh fails (the session ended), the session signs out and `<AuthorizeView>` shows the
+  login form; the original `401` is returned.
+- `AuthSession.RefreshAsync` is single-flight: callers that arrive during a refresh await the same
+  task. Refresh tokens work once (D-054), so two parallel refreshes would spend the cookie twice and
+  the second would sign the user out. A request whose token was already replaced by another
+  request's refresh retries with the new token without refreshing again.
+- The retry resends the same `HttpRequestMessage`: only `HttpClient.SendAsync` refuses a second
+  send, handlers may (Polly's retries do the same). The body isn't buffered: JSON, string and byte
+  bodies can be sent again as they are, and buffering would hold a whole upload in memory. A
+  `StreamContent` body may already be consumed by the first send, so it isn't resent: the token is
+  still refreshed, the `401` is returned, and the caller's next attempt goes out with the new token.
+- New `Frontend/Pingo.Frontend.Tests` (xUnit, FluentAssertions 7) tests the handler with a real
+  `AuthSession` against fake Message and Identity `HttpMessageHandler`s. The fakes read bodies with
+  `CopyToAsync` like a real transport, because `ReadAsStringAsync` would buffer the content and hide
+  a body that can't be resent.
+
+**Consequences:** An expired access token is invisible to the user: the request takes one extra
+round trip. A future large upload sent as a stream would fail once with `401` when the token has
+just expired; refreshing before `accessTokenExpiresAt` would avoid that if uploads become a feature. Checked in the browser with a 1-minute token: `PUT` `401`, `/refresh` `200`, `PUT`
+`201`. The frontend tests need no browser or Docker, so they run with `--filter "Category!=Docker"`.
+
+## D-057: Frontend code depends on `IAuthSession`, not the `AuthSession` class
+
+- **Date:** 2026-11-12
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** `AccessTokenHandler`, `PingoAuthenticationStateProvider`, `LoginForm` and `MainLayout`
+used the concrete `AuthSession` from D-055.
+
+**Decision:** `IAuthSession` declares what the app needs from the session: `AccessToken`,
+`IsSignedIn`, `Changed`, `RestoreAsync`, `LoginAsync`, `RegisterAsync`, `LogoutAsync` and
+`RefreshAsync`. Everything depends on the interface, and only `Program.cs` names the class:
+`AddSingleton<IAuthSession, AuthSession>()`. The singleton lifetime from D-055 stays.
+
+**Consequences:** Consumers can be tested with a fake session without a fake Identity behind it.
+The handler tests still use the real `AuthSession`, because its single-flight refresh is part of
+what they check.

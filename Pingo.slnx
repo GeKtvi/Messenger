@@ -7,6 +7,7 @@
     <File Path="docs/decision-log.md" />
   </Folder>
   <Folder Name="/Frontend/">
+    <Project Path="Frontend/Pingo.Frontend.Tests/Pingo.Frontend.Tests.csproj" />
     <Project Path="Frontend/Pingo.Frontend/Pingo.Frontend.csproj" />
   </Folder>
   <Folder Name="/Services/" />

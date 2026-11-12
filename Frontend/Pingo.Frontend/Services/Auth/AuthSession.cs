@@ -4,9 +4,11 @@ namespace Pingo.Frontend.Services.Auth;
 // session is restored from the HttpOnly refresh token cookie instead. A singleton: in Blazor
 // WebAssembly, IHttpClientFactory creates message handlers in their own scope, and they must see
 // the same token as the rest of the app.
-public class AuthSession(IdentityApiClient identity)
+public class AuthSession(IdentityApiClient identity) : IAuthSession
 {
+    private readonly object _refreshGate = new();
     private Task? _restore;
+    private Task? _refreshing;
 
     public string? AccessToken { get; private set; }
 
@@ -47,7 +49,19 @@ public class AuthSession(IdentityApiClient identity)
     }
 
     // Gets a new access token with the refresh token cookie; signs out if the session has ended.
-    public async Task RefreshAsync()
+    // Single-flight: callers that arrive while a refresh is running share it. Refresh tokens work
+    // once, so two parallel refreshes would spend the cookie twice and the second would sign out.
+    public Task RefreshAsync()
+    {
+        lock (_refreshGate)
+        {
+            if (_refreshing is { IsCompleted: false })
+                return _refreshing;
+            return _refreshing = RunRefreshAsync();
+        }
+    }
+
+    private async Task RunRefreshAsync()
     {
         try
         {

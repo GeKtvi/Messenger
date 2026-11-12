@@ -8,9 +8,9 @@ namespace Pingo.Frontend.Services.Auth;
 // restored from the refresh token cookie, so the login screen doesn't flash on reload.
 public class PingoAuthenticationStateProvider : AuthenticationStateProvider, IDisposable
 {
-    private readonly AuthSession _session;
+    private readonly IAuthSession _session;
 
-    public PingoAuthenticationStateProvider(AuthSession session)
+    public PingoAuthenticationStateProvider(IAuthSession session)
     {
         _session = session;
         _session.Changed += OnSessionChanged;
