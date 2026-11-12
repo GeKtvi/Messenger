@@ -146,6 +146,10 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
   `401` at the same time share one refresh, because each refresh token works only once. If the
   session has ended, the login form comes back.
 - **Log out** ends the session in Identity and clears unsent messages.
+- **Retries:** if the Message API fails for a moment (a 5xx, a timeout, or the server being
+  unreachable), the request is repeated up to 3 times with growing delays (about 0.5 s, 1 s, 2 s).
+  This uses `Microsoft.Extensions.Http.Resilience` (Polly v8 underneath) and sits under the token
+  handler. Calls to Identity aren't retried, so a refresh never spends its single-use cookie twice.
 
 ## Frontend: pending messages
 
@@ -205,10 +209,13 @@ dotnet test Pingo.slnx
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
 
-`Pingo.Frontend.Tests` checks the frontend's `AccessTokenHandler` with a real `AuthSession`
-against fake Message and Identity APIs: the bearer header, refresh and retry on `401`, one shared
-refresh for parallel `401`s, signing out when the session has ended, and resending the request body.
-It needs no browser or Docker.
+`Pingo.Frontend.Tests` runs the frontend's HTTP pipeline against fake Message and Identity APIs,
+with no browser or Docker:
+
+| Test class | Covers |
+|---|---|
+| `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
+| `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token |
 
 The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
 every insert until all requests have reached it, then releases them together. To skip all Docker tests:

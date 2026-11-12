@@ -1208,3 +1208,39 @@ used the concrete `AuthSession` from D-055.
 **Consequences:** Consumers can be tested with a fake session without a fake Identity behind it.
 The handler tests still use the real `AuthSession`, because its single-flight refresh is part of
 what they check.
+
+## D-058: Retries with Microsoft.Extensions.Http.Resilience on the Message API client only
+
+- **Date:** 2026-11-12
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** Stage 05 asks for a retry policy with Polly (`Polly.Extensions.Http`): on 5xx, timeouts
+or temporary unavailability, repeat the request 2-3 times with a delay, working together with the
+`DelegatingHandler`. `Polly.Extensions.Http` is the deprecated Polly v7 API. Polly's README also
+announces a monthly fee, from 16 November 2026, for companies earning at least US $20,000 with a
+product that references the next major Polly version directly.
+
+**Decision:** Deliberately deviate from the named package, as agreed:
+
+- The frontend uses `Microsoft.Extensions.Http.Resilience` 10.11.0 (MIT, Microsoft's recommended
+  way to use Polly). It brings Polly v8 (BSD-3-Clause) in only transitively; nothing references
+  Polly directly. 10.11.0 rather than 11.0.0, which belongs to the .NET 11 line and conflicts with
+  the .NET 10 packages.
+- Only the Message API client retries. Its calls are safe to repeat: `GET`, and `PUT` with the
+  client's message id (D-023). The Identity client doesn't: a repeated `/refresh` after a lost
+  response would spend the single-use cookie twice and sign the user out.
+- The pipeline is `AccessTokenHandler` (outer) → resilience handler (inner) → network. Retries
+  happen below the token handler, so a `401` still goes up to it for a refresh, and the request it
+  sends again goes through the retries too.
+- `AddResilienceHandler("message-api")`: retry up to 3 times with exponential backoff and jitter
+  (0.5 s, ~1 s, ~2 s) on what `HttpRetryStrategyOptions` treats as transient (5xx, 408, 429,
+  `HttpRequestException`, timeouts), then a 10-second timeout per attempt. The values are in
+  `MessageApiRetryOptions`, which the tests shorten.
+- The client registrations moved from `Program.cs` to `ApiClientsSetup.AddPingoApiClients`, so the
+  tests build the exact same pipeline and replace only the network.
+
+**Consequences:** A short outage or one slow response no longer shows the user an error. When all
+4 attempts fail, the outbox still marks the message "Not sent" with Retry (D-025), as checked in
+the browser with the Message API stopped. A failure now takes up to about 3.5 seconds of waiting
+before it shows. Requests to Identity get no retries.
