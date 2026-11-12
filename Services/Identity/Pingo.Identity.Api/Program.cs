@@ -3,6 +3,8 @@ using Pingo.Identity;
 using Pingo.Identity.Api.Jobs;
 using Pingo.Identity.Tokens;
 
+const string FrontendCorsPolicy = "Frontend";
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
@@ -16,6 +18,18 @@ builder.Services.AddPingoIdentity(
     builder.Configuration.GetConnectionString("Identity"),
     builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.AddPingoBackgroundJobs(builder.Configuration.GetConnectionString("Redis"));
+
+// The frontend calls Identity from another origin and needs the refresh token cookie sent along,
+// so credentials are allowed. That only works with exact origins, never "*".
+builder.Services.AddCors(options =>
+{
+    var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+    options.AddPolicy(FrontendCorsPolicy, policy => policy
+        .WithOrigins(origins)
+        .AllowCredentials()
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
 
 var app = builder.Build();
 
@@ -33,6 +47,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.ScheduleRecurringJobs();
+
+app.UseCors(FrontendCorsPolicy);
 
 // Picks the error message language from Accept-Language (or ?culture=ru); anything else gets English.
 app.UseRequestLocalization(options => options

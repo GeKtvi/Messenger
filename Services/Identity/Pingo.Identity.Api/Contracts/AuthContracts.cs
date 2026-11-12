@@ -29,18 +29,11 @@ public class LoginRequest
     public string Password { get; init; } = string.Empty;
 }
 
-// Sent in the body, never in the URL, so the token doesn't end up in server or proxy logs.
-public class RefreshRequest
-{
-    [Required(ErrorMessage = "Refresh token is required.")]
-    [MaxLength(256, ErrorMessage = "Refresh token must be at most {1} characters.")]
-    public string RefreshToken { get; init; } = string.Empty;
-}
-
+// The refresh token isn't in the body: it's set as an HttpOnly cookie, so page scripts never see it.
+// RefreshTokenExpiresAt says when the session ends, so the client can show or plan for it.
 public record TokenResponse(
     string AccessToken,
     DateTimeOffset AccessTokenExpiresAt,
-    string RefreshToken,
     DateTimeOffset RefreshTokenExpiresAt)
 {
     // Tells the client how to send the access token: "Authorization: Bearer <accessToken>".

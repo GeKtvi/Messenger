@@ -72,6 +72,12 @@ internal class AuthService(
             accessToken.Value, accessToken.ExpiresAt, newRefreshToken.Value, newRefreshToken.ExpiresAt);
     }
 
+    public Task LogoutAsync(string refreshToken, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(refreshToken);
+        return refreshTokens.DeleteAsync(TokenFactory.HashRefreshToken(refreshToken), ct);
+    }
+
     // Emails are case-insensitive in practice, so "Ann@Example.com" and "ann@example.com" are one account.
     private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 

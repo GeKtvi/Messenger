@@ -93,21 +93,4 @@ public class ValidationTests(IdentityApiFactory factory) : IdentityTestBase(fact
         errors["Email"].Should().Equal("Email is required.");
         errors["Password"].Should().Equal("Password is required.");
     }
-
-    [Fact]
-    public async Task Refresh_TokenAtTheLengthLimit_IsCheckedAndRejected()
-    {
-        var response = await Client.RefreshAsync(new string('t', 256));
-
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-    }
-
-    [Fact]
-    public async Task Refresh_TokenOverTheLengthLimit_Returns400()
-    {
-        var response = await Client.RefreshAsync(new string('t', 257));
-
-        (await response.ReadValidationErrorsAsync())["RefreshToken"]
-            .Should().Equal("Refresh token must be at most 256 characters.");
-    }
 }

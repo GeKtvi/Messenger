@@ -63,6 +63,12 @@ internal class RefreshTokenRepository(IdentityDatabase database) : IRefreshToken
         return true;
     }
 
+    public async Task DeleteAsync(byte[] tokenHash, CancellationToken ct = default)
+    {
+        await using var connection = await database.OpenConnectionAsync(ct);
+        await connection.ExecuteAsync(new CommandDefinition(DeleteSql, new { TokenHash = tokenHash }, cancellationToken: ct));
+    }
+
     public async Task<int> DeleteExpiredAsync(DateTimeOffset now, CancellationToken ct = default)
     {
         await using var connection = await database.OpenConnectionAsync(ct);

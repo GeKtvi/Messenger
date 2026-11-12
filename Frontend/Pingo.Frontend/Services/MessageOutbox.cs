@@ -50,6 +50,15 @@ public class MessageOutbox(MessageApiClient api, IJSRuntime js)
 
     public Task RetryAsync(PendingMessage message) => DeliverAsync(message);
 
+    // On logout: unsent messages belong to the user who wrote them, so they don't wait for the next one.
+    public async Task ClearAsync()
+    {
+        _pending.Clear();
+        _initialized = false;
+        await SaveAsync();
+        Changed?.Invoke();
+    }
+
     public async Task DiscardAsync(PendingMessage message)
     {
         _pending.Remove(message);

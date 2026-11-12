@@ -792,7 +792,7 @@ methods) is the next step. Dapper maps rows through record constructors, which n
 
 - **Date:** 2026-11-02
 - **Stage:** 03
-- **Status:** Accepted
+- **Status:** Superseded by D-054
 
 **Context:** Stage 03's refresh endpoint takes a refresh token and returns a new access token.
 A refresh token that stays valid for 30 days, however often it's used, is a long-lived target if
@@ -1090,3 +1090,68 @@ tokens. RS256 with Identity publishing only its public key (JWKS) would avoid th
 natural next step with more services. A `401` from this service has no body, only
 `WWW-Authenticate: Bearer`. Messages still don't record who sent them. The frontend gets `401`s
 until it logs in (stage 05, step 3).
+
+## D-054: The refresh token travels only in an HttpOnly cookie; the access token stays in memory
+
+- **Date:** 2026-11-03
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** Stage 05 adds login to the browser UI. The task says to save `access_token` and
+`refresh_token` on the client and send the refresh token to `/refresh`. Anything a script can read
+(`localStorage`, `sessionStorage`, a response body) can be stolen by injected script (XSS), and the
+refresh token is a 30-day session. Sites like Google keep sessions in cookies that scripts can't read.
+
+**Decision:** Deliberately deviate from the task, as agreed:
+
+- Login and refresh set the refresh token as a cookie `pingo_refresh` with `HttpOnly`, `Secure`,
+  `SameSite=Strict`, `Path=/api/auth`, expiring with the session. The response body no longer has
+  `refreshToken`; it keeps `accessToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt` and
+  `tokenType`.
+- `POST /api/auth/refresh` takes no body and reads the cookie. A missing, invalid, overlong or used
+  cookie gets `401` and is deleted. Rotation is unchanged from D-044: each token works once, the
+  `DELETE` row count decides concurrent refreshes, and the session keeps its original expiry.
+- New `POST /api/auth/logout` deletes the token behind the cookie and the cookie itself. It always
+  returns `204`.
+- Identity has CORS for the frontend origins with `AllowCredentials`.
+- The frontend keeps the access token only in memory and sends every Identity request with
+  credentials included, so the browser handles the cookie. A page reload restores the session with
+  one `/refresh` call.
+- Identity tests pass the cookie explicitly (clients without a cookie jar), plus one test with a
+  real cookie jar over HTTPS like a browser.
+
+**Consequences:** Injected script can no longer read the refresh token. It can still call the APIs
+while the page is open, which is what a BFF (a server holding all tokens) would also prevent.
+`SameSite=Strict` and the CORS allow-list stop other sites from using the cookie. Swagger can still
+log in and refresh, because the browser keeps the cookie there too. API clients that aren't browsers
+must keep the cookie themselves. `localhost:5221` and `localhost:5240` count as the same site, so
+this works locally; in production, the frontend and Identity need to share a registrable domain.
+
+## D-055: Frontend sign-in with AuthorizeView, a singleton session and a bearer-token handler
+
+- **Date:** 2026-11-03
+- **Stage:** 05
+- **Status:** Accepted
+
+**Context:** Stage 05 asks the UI to show a login screen when the app opens, keep the tokens after
+login, and add `Authorization: Bearer {access_token}` to every request.
+
+**Decision:**
+
+- `AuthSession` (a singleton) holds the access token in memory and talks to `IdentityApiClient`
+  for login, register, refresh and logout. It must be a singleton: `IHttpClientFactory` builds
+  message handlers in their own DI scope, and they need the same session as the pages.
+- `PingoAuthenticationStateProvider` exposes the session to Blazor. Its first call restores the
+  session from the cookie, so a reload shows the chat, not the login form.
+- `MainLayout` uses `<AuthorizeView>`: the chat when signed in, `LoginForm` otherwise, and a
+  progress bar while restoring. The app bar has a Log out button.
+- `LoginForm` logs in or creates an account (then logs straight in). It shows Identity's own error
+  titles, which come in the browser's language.
+- Both API clients are typed `HttpClient`s from `AddHttpClient` (`Microsoft.Extensions.Http`).
+  `AccessTokenHandler`, a `DelegatingHandler` on the Message API client, adds the bearer token, so
+  no page or service handles it.
+- Logout clears the outbox: unsent messages belong to the user who wrote them.
+
+**Consequences:** When the access token expires after 15 minutes, requests get `401` until step 4's
+refresh-on-401 handler. The user id is read from the token only for display; the browser never
+checks signatures. Messages still don't show who sent them.

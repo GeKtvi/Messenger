@@ -62,5 +62,8 @@ public class StartupAndErrorTests(IdentityApiFactory factory) : IdentityTestBase
 
         public Task<Result<AuthTokens, RefreshError>> RefreshAsync(
             string refreshToken, CancellationToken ct = default) => throw new InvalidOperationException(Secret);
+
+        public Task LogoutAsync(string refreshToken, CancellationToken ct = default) =>
+            throw new InvalidOperationException(Secret);
     }
 }

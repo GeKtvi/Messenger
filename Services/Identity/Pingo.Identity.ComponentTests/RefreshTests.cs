@@ -20,7 +20,7 @@ public class RefreshTests(IdentityApiFactory factory) : IdentityTestBase(factory
         var response = await Client.RefreshAsync(login.RefreshToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var refreshed = await response.ReadAsync<TokenResponse>();
+        var refreshed = await response.ReadSignedInAsync();
         refreshed.AccessToken.Should().NotBe(login.AccessToken);
         refreshed.AccessTokenExpiresAt.Should().Be(Factory.Time.GetUtcNow().AddMinutes(15));
         refreshed.RefreshToken.Should().NotBe(login.RefreshToken);
@@ -31,7 +31,7 @@ public class RefreshTests(IdentityApiFactory factory) : IdentityTestBase(factory
     public async Task Refresh_RotatedToken_CanBeUsedOnce()
     {
         var login = await Client.RegisterAndLoginAsync(Email);
-        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadAsync<TokenResponse>();
+        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadSignedInAsync();
 
         var response = await Client.RefreshAsync(refreshed.RefreshToken);
 
@@ -77,7 +77,7 @@ public class RefreshTests(IdentityApiFactory factory) : IdentityTestBase(factory
         // The rotated token keeps the session's end, so refreshing on day 29 doesn't extend it.
         var login = await Client.RegisterAndLoginAsync(Email);
         Factory.Time.Advance(TimeSpan.FromDays(29));
-        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadAsync<TokenResponse>();
+        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadSignedInAsync();
         Factory.Time.Advance(TimeSpan.FromDays(1));
 
         var response = await Client.RefreshAsync(refreshed.RefreshToken);
@@ -89,7 +89,7 @@ public class RefreshTests(IdentityApiFactory factory) : IdentityTestBase(factory
     public async Task Refresh_OneOfTwoSessions_LeavesTheOtherWorking()
     {
         var phone = await Client.RegisterAndLoginAsync(Email);
-        var laptop = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
+        var laptop = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
 
         (await Client.RefreshAsync(phone.RefreshToken)).StatusCode.Should().Be(HttpStatusCode.OK);
         var response = await Client.RefreshAsync(laptop.RefreshToken);

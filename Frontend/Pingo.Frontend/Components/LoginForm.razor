@@ -1,0 +1,70 @@
+@inject AuthSession Session
+
+@* Shown instead of the chat until the user signs in. Errors come from Identity, already in the
+   browser's language. *@
+<MudPaper Class="pa-6 mx-auto" Elevation="2" Style="max-width: 420px">
+    <MudText Typo="Typo.h5" Class="mb-4">@(_creatingAccount ? "Create an account" : "Log in to Pingo")</MudText>
+
+    <form @onsubmit="SubmitAsync">
+        <MudStack Spacing="3">
+            <MudTextField T="string" @bind-Value="_email" Label="Email" Variant="Variant.Outlined"
+                          InputType="InputType.Email" Immediate autocomplete="username" />
+            <MudTextField T="string" @bind-Value="_password" Label="Password" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Immediate
+                          autocomplete="@(_creatingAccount ? "new-password" : "current-password")"
+                          HelperText="@(_creatingAccount ? "At least 8 characters" : null)" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense>@_error</MudAlert>
+            }
+
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="@(_busy || string.IsNullOrWhiteSpace(_email) || string.IsNullOrEmpty(_password))">
+                @if (_busy)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate Class="mr-2" />
+                }
+                @(_creatingAccount ? "Create account" : "Log in")
+            </MudButton>
+
+            <MudButton Variant="Variant.Text" OnClick="ToggleMode" Disabled="_busy">
+                @(_creatingAccount ? "I already have an account" : "Create an account")
+            </MudButton>
+        </MudStack>
+    </form>
+</MudPaper>
+
+@code {
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _busy;
+    private bool _creatingAccount;
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _error = _creatingAccount
+                ? await Session.RegisterAsync(_email, _password)
+                : await Session.LoginAsync(_email, _password);
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Can't reach the server. Try again in a moment.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ToggleMode()
+    {
+        _creatingAccount = !_creatingAccount;
+        _error = null;
+    }
+}

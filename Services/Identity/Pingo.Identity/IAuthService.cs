@@ -17,4 +17,8 @@ public interface IAuthService
     // token stops working (rotation).
     Task<Result<AuthTokens, RefreshError>> RefreshAsync(
         string refreshToken, CancellationToken ct = default);
+
+    // Ends the session that the refresh token belongs to: the token stops working. Access tokens
+    // already issued stay valid until they expire (at most AccessTokenLifetime).
+    Task LogoutAsync(string refreshToken, CancellationToken ct = default);
 }

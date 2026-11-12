@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Localization;
+using Pingo.Identity.Api.Auth;
 using Pingo.Identity.Api.Contracts;
 using Pingo.Identity.Api.HttpResults;
 using Pingo.Identity.Api.OpenApi;
@@ -52,17 +53,19 @@ public class AuthController(IAuthService auth, IStringLocalizer<ErrorMessages> m
             };
         }
 
-        return TypedResults.Ok(ToResponse(result.Value));
+        return TypedResults.Ok(SignIn(result.Value));
     }
 
-    // Returns a new access token and a new refresh token; the refresh token sent in is used up.
+    // Exchanges the refresh token cookie for a new access token and a new cookie; the old token is
+    // used up. A missing or invalid cookie is deleted, so the browser stops sending it.
     [HttpPost("refresh")]
-    [ProducesValidationProblem]
-    public async Task<Results<Ok<TokenResponse>, UnauthorizedProblem>> Refresh(RefreshRequest request, CancellationToken ct)
+    public async Task<Results<Ok<TokenResponse>, UnauthorizedProblem>> Refresh(CancellationToken ct)
     {
-        var result = await auth.RefreshAsync(request.RefreshToken, ct);
+        var refreshToken = RefreshTokenCookie.Read(Request);
+        var result = refreshToken is null ? RefreshError.InvalidToken : await auth.RefreshAsync(refreshToken, ct);
         if (result.IsFailure)
         {
+            RefreshTokenCookie.Delete(Response);
             return result.Error switch
             {
                 RefreshError.InvalidToken => TypedResults.InvalidRefreshToken(messages),
@@ -70,9 +73,25 @@ public class AuthController(IAuthService auth, IStringLocalizer<ErrorMessages> m
             };
         }
 
-        return TypedResults.Ok(ToResponse(result.Value));
+        return TypedResults.Ok(SignIn(result.Value));
     }
 
-    private static TokenResponse ToResponse(AuthTokens tokens) =>
-        new(tokens.AccessToken, tokens.AccessTokenExpiresAt, tokens.RefreshToken, tokens.RefreshTokenExpiresAt);
+    // Ends the session: the refresh token stops working and its cookie is deleted. Always 204, so
+    // logging out twice, or without a session, is fine.
+    [HttpPost("logout")]
+    public async Task<NoContent> Logout(CancellationToken ct)
+    {
+        if (RefreshTokenCookie.Read(Request) is { } refreshToken)
+            await auth.LogoutAsync(refreshToken, ct);
+
+        RefreshTokenCookie.Delete(Response);
+        return TypedResults.NoContent();
+    }
+
+    // The access token goes in the body for the client to hold; the refresh token only in the cookie.
+    private TokenResponse SignIn(AuthTokens tokens)
+    {
+        RefreshTokenCookie.Write(Response, tokens.RefreshToken, tokens.RefreshTokenExpiresAt);
+        return new TokenResponse(tokens.AccessToken, tokens.AccessTokenExpiresAt, tokens.RefreshTokenExpiresAt);
+    }
 }

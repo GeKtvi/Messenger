@@ -27,7 +27,7 @@ public class ConcurrencyTests(IdentityApiFactory factory) : IdentityTestBase(fac
             services.AddSingleton<IRefreshTokenRepository>(provider => new FindGateRefreshTokenRepository(
                 new RefreshTokenRepository(provider.GetRequiredService<IdentityDatabase>()), Requests));
         }));
-        var client = gated.CreateClient();
+        var client = gated.CreateClient(ClientOptions);
 
         var responses = await Task.WhenAll(
             Enumerable.Range(0, Requests).Select(_ => client.RefreshAsync(login.RefreshToken)));

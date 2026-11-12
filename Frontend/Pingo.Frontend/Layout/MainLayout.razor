@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@inject AuthSession Session
+@inject MessageOutbox Outbox
 
 <MudThemeProvider />
 <MudPopoverProvider />
@@ -9,10 +11,30 @@
     <MudAppBar Elevation="1">
         <MudIcon Icon="@Icons.Material.Filled.Forum" Class="mr-3" />
         <MudText Typo="Typo.h6">Pingo</MudText>
+        <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <MudButton Variant="Variant.Text" Color="Color.Inherit" EndIcon="@Icons.Material.Filled.Logout"
+                           OnClick="LogoutAsync">Log out</MudButton>
+            </Authorized>
+        </AuthorizeView>
     </MudAppBar>
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.Medium" Class="py-6">
-            @Body
+            @* The chat is only rendered for a signed-in user; until then the login form takes its place. *@
+            <AuthorizeView>
+                <Authorized>@Body</Authorized>
+                <NotAuthorized><LoginForm /></NotAuthorized>
+                <Authorizing><MudProgressLinear Indeterminate Color="Color.Primary" /></Authorizing>
+            </AuthorizeView>
         </MudContainer>
     </MudMainContent>
 </MudLayout>
+
+@code {
+    private async Task LogoutAsync()
+    {
+        await Outbox.ClearAsync();
+        await Session.LogoutAsync();
+    }
+}

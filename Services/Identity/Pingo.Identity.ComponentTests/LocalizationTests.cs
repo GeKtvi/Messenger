@@ -1,7 +1,5 @@
 using System.Net;
-using System.Net.Http.Json;
 using FluentAssertions;
-using Pingo.Identity.Api.Contracts;
 
 namespace Pingo.Identity.ComponentTests;
 
@@ -61,8 +59,8 @@ public class LocalizationTests(IdentityApiFactory factory) : IdentityTestBase(fa
     [Fact]
     public async Task CultureQueryString_WithoutHeader_PicksRussian()
     {
-        var response = await Client.PostAsJsonAsync(
-            "/api/auth/refresh?culture=ru", new RefreshRequest { RefreshToken = "not-a-real-token" });
+        var response = await Client.SendAsync(IdentityHttpClientExtensions.WithRefreshCookie(
+            HttpMethod.Post, "/api/auth/refresh?culture=ru", "not-a-real-token"));
 
         await response.ShouldBeProblemAsync(
             HttpStatusCode.Unauthorized, "invalid-refresh-token", "Refresh-токен недействителен или истёк.");

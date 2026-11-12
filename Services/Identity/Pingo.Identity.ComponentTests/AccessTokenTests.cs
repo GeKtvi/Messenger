@@ -28,7 +28,7 @@ public class AccessTokenTests(IdentityApiFactory factory) : IdentityTestBase(fac
         var registered = await (await Client.RegisterAsync(Email)).ReadAsync<RegisterResponse>();
         var now = Factory.Time.GetUtcNow();
 
-        var tokens = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
+        var tokens = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
 
         var jwt = new JsonWebToken(tokens.AccessToken);
         jwt.Alg.Should().Be("HS256");
@@ -49,7 +49,7 @@ public class AccessTokenTests(IdentityApiFactory factory) : IdentityTestBase(fac
         await Client.RegisterAsync(Email);
         Factory.Time.Advance(TimeSpan.FromTicks(1_234_567));
 
-        var tokens = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
+        var tokens = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
 
         tokens.AccessTokenExpiresAt.Should().Be(new DateTimeOffset(new JsonWebToken(tokens.AccessToken).ValidTo));
         tokens.AccessTokenExpiresAt.Ticks.Should().Be(
@@ -61,8 +61,8 @@ public class AccessTokenTests(IdentityApiFactory factory) : IdentityTestBase(fac
     {
         await Client.RegisterAsync(Email);
 
-        var first = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
-        var second = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
+        var first = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
+        var second = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
 
         new JsonWebToken(first.AccessToken).Id.Should().NotBe(new JsonWebToken(second.AccessToken).Id);
     }
@@ -73,7 +73,7 @@ public class AccessTokenTests(IdentityApiFactory factory) : IdentityTestBase(fac
         var login = await Client.RegisterAndLoginAsync(Email);
         Factory.Time.Advance(TimeSpan.FromMinutes(20));
 
-        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadAsync<TokenResponse>();
+        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadSignedInAsync();
 
         var before = new JsonWebToken(login.AccessToken);
         var after = new JsonWebToken(refreshed.AccessToken);

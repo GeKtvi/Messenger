@@ -14,6 +14,9 @@ internal interface IRefreshTokenRepository
     // another request a moment earlier), so one refresh token can't be redeemed twice.
     Task<bool> TryReplaceAsync(byte[] oldTokenHash, StoredRefreshToken replacement, CancellationToken ct = default);
 
+    // Logout: deletes one token. Does nothing if it's already gone.
+    Task DeleteAsync(byte[] tokenHash, CancellationToken ct = default);
+
     // Cleanup: deletes every token that expired before the given time. Returns how many were deleted.
     Task<int> DeleteExpiredAsync(DateTimeOffset now, CancellationToken ct = default);
 }

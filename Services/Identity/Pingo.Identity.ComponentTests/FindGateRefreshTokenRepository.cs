@@ -27,6 +27,8 @@ internal sealed class FindGateRefreshTokenRepository(IRefreshTokenRepository inn
     public Task<bool> TryReplaceAsync(byte[] oldTokenHash, StoredRefreshToken replacement, CancellationToken ct = default) =>
         inner.TryReplaceAsync(oldTokenHash, replacement, ct);
 
+    public Task DeleteAsync(byte[] tokenHash, CancellationToken ct = default) => inner.DeleteAsync(tokenHash, ct);
+
     public Task<int> DeleteExpiredAsync(DateTimeOffset now, CancellationToken ct = default) =>
         inner.DeleteExpiredAsync(now, ct);
 }

@@ -99,8 +99,9 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 | Method | Route                | Description |
 |--------|----------------------|-------------|
 | POST   | `/api/auth/register` | Registers `{ "email": "...", "password": "..." }`. Returns `201` with the user id, `409` if the email is taken |
-| POST   | `/api/auth/login`    | Signs in with `{ "email": "...", "password": "..." }`. Returns an access token and a refresh token, or `401` (unknown email, or wrong password) |
-| POST   | `/api/auth/refresh`  | Exchanges `{ "refreshToken": "..." }` for a new access token and a new refresh token, or `401` |
+| POST   | `/api/auth/login`    | Signs in with `{ "email": "...", "password": "..." }`. Returns an access token and sets the refresh token cookie, or `401` (unknown email, or wrong password) |
+| POST   | `/api/auth/refresh`  | No body: uses the refresh token cookie. Returns a new access token and sets a new cookie, or `401` |
+| POST   | `/api/auth/logout`   | Ends the session behind the cookie and deletes the cookie. Always `204` |
 
 - **Storage:** users and their email/password sign-ins are kept in separate tables (`users`,
   `password_logins`), so other ways to sign in can be added later.
@@ -109,9 +110,12 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
 - **Access token:** a JWT signed with HS256, valid for 15 minutes, with the user id in `sub`. Send it
   as `Authorization: Bearer <accessToken>`. JWT settings are in the `Jwt` section of
   `appsettings.json`; the development signing key is in `appsettings.Development.json`.
-- **Refresh token:** a random 256-bit string. Only its SHA-256 hash is stored. Each refresh token
-  works once: refreshing returns a new one and invalidates the old one. The session ends 30 days
-  after login, however often it's refreshed.
+- **Refresh token:** a random 256-bit string, sent only as an `HttpOnly`, `Secure`,
+  `SameSite=Strict` cookie (`pingo_refresh`, path `/api/auth`), never in a response body, so page
+  scripts can't read it. Only its SHA-256 hash is stored. Each refresh token works once: refreshing
+  sets a new one and invalidates the old one. The session ends 30 days after login, however often
+  it's refreshed.
+- **CORS:** the frontend's origins may call Identity with credentials (the cookie).
 - **Token cleanup:** a Hangfire job deletes expired refresh tokens once a day at 03:00 UTC, using an
   index on `expires_at`. Hangfire keeps its jobs in Redis (the `redis` service in
   `docker-compose.yml`, keys prefixed `pingo-identity:hangfire:`). In Development its dashboard is
@@ -123,6 +127,18 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
   the task asks. They use `TypedResults.Problem()` wrapped in our own `ConflictProblem` and
   `UnauthorizedProblem` result types, so the signatures document every response. That's cleaner and
   reusable, but over-engineered for a service this size (D-047, D-048).
+
+## Frontend: signing in
+
+- Opening the app shows a login form, which can also create an account. Identity's error messages
+  are shown as they come, in the browser's language.
+- After login, the access token is kept only in memory. The refresh token stays in its `HttpOnly`
+  cookie, which the browser sends to Identity by itself; the app never sees it.
+- Reloading the page restores the session from the cookie with one `/refresh` call, so there's no
+  new login while the 30-day session lasts.
+- Every Message API request carries `Authorization: Bearer <access token>`, added by
+  `AccessTokenHandler` (a `DelegatingHandler` on the typed `HttpClient`).
+- **Log out** ends the session in Identity and clears unsent messages.
 
 ## Frontend: pending messages
 
@@ -178,6 +194,7 @@ dotnet test Pingo.slnx
 | `ConcurrencyTests` | One refresh token used 10 times at once (forced race), one email registered 10 times at once |
 | `ValidationTests` | Email, password and refresh token length limits, invalid email, empty, null and malformed bodies |
 | `LocalizationTests` | Russian titles for every error, `?culture=ru`, language fallback order, English fallback |
+| `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
 
@@ -199,7 +216,11 @@ Start PostgreSQL and Redis (local dev credentials are in `docker-compose.yml` an
 docker compose up -d
 ```
 
-Then start both projects (in separate terminals):
+Then start the three projects (in separate terminals):
+
+```bash
+dotnet run --project Services/Identity/Pingo.Identity.Api --launch-profile http
+```
 
 ```bash
 dotnet run --project Services/Message/Pingo.Messages.Api --launch-profile http
@@ -212,7 +233,6 @@ dotnet run --project Frontend/Pingo.Frontend --launch-profile http
 Then open http://localhost:5221.
 
 - API: http://localhost:5230 (OpenAPI document at `/openapi/v1.json` in Development)
-- Identity API: `dotnet run --project Services/Identity/Pingo.Identity.Api --launch-profile http`,
-  then Swagger UI at http://localhost:5240/swagger
-- The frontend reads the API address from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
+- Identity API: http://localhost:5240, with Swagger UI at http://localhost:5240/swagger
+- The frontend reads both API addresses from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.

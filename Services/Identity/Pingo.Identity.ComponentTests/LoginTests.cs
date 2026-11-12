@@ -19,7 +19,7 @@ public class LoginTests(IdentityApiFactory factory) : IdentityTestBase(factory)
         var response = await Client.LoginAsync(Email);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var tokens = await response.ReadAsync<TokenResponse>();
+        var tokens = await response.ReadSignedInAsync();
         var now = Factory.Time.GetUtcNow();
         tokens.TokenType.Should().Be("Bearer");
         tokens.AccessTokenExpiresAt.Should().Be(now.AddMinutes(15));

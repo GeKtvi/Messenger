@@ -73,9 +73,9 @@ public class StorageTests(IdentityApiFactory factory) : IdentityTestBase(factory
     {
         await Client.RegisterAsync(Email);
         Factory.Time.Advance(TimeSpan.FromTicks(1_234_567));
-        var login = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
+        var login = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
 
-        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadAsync<TokenResponse>();
+        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadSignedInAsync();
 
         refreshed.RefreshTokenExpiresAt.Should().Be(login.RefreshTokenExpiresAt);
     }
@@ -84,7 +84,7 @@ public class StorageTests(IdentityApiFactory factory) : IdentityTestBase(factory
     public async Task Refresh_StoresOnlyTheTokenHash_AndReplacesTheRow()
     {
         var registered = await (await Client.RegisterAsync(Email)).ReadAsync<RegisterResponse>();
-        var login = await (await Client.LoginAsync(Email)).ReadAsync<TokenResponse>();
+        var login = await (await Client.LoginAsync(Email)).ReadSignedInAsync();
         await using var db = await Factory.OpenConnectionAsync();
         const string Sql = "SELECT token_hash, user_id, created_at, expires_at FROM refresh_tokens";
 
@@ -93,7 +93,7 @@ public class StorageTests(IdentityApiFactory factory) : IdentityTestBase(factory
         first.UserId.Should().Be(registered.UserId);
 
         Factory.Time.Advance(TimeSpan.FromHours(1));
-        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadAsync<TokenResponse>();
+        var refreshed = await (await Client.RefreshAsync(login.RefreshToken)).ReadSignedInAsync();
 
         var second = await db.QuerySingleAsync<(byte[] Hash, Guid UserId, DateTime CreatedAt, DateTime ExpiresAt)>(Sql);
         second.Hash.Should().Equal(Sha256(refreshed.RefreshToken));

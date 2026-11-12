@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Mvc.Testing;
+
 namespace Pingo.Identity.ComponentTests;
 
 // All Identity test classes share one IdentityApiFactory, so PostgreSQL starts once per test run.
@@ -14,7 +16,10 @@ public abstract class IdentityTestBase(IdentityApiFactory factory) : IAsyncLifet
 {
     protected IdentityApiFactory Factory { get; } = factory;
 
-    protected HttpClient Client { get; } = factory.CreateClient();
+    // No cookie jar: tests pass the refresh token cookie explicitly (see RefreshAsync).
+    public static readonly WebApplicationFactoryClientOptions ClientOptions = new() { HandleCookies = false };
+
+    protected HttpClient Client { get; } = factory.CreateClient(ClientOptions);
 
     public Task InitializeAsync() => Task.CompletedTask;
 
@@ -32,7 +37,7 @@ public abstract class IdentityTestBase(IdentityApiFactory factory) : IAsyncLifet
     // A client whose requests ask for the given language, e.g. "ru-RU".
     protected HttpClient CreateClient(string acceptLanguage)
     {
-        var client = Factory.CreateClient();
+        var client = Factory.CreateClient(ClientOptions);
         client.DefaultRequestHeaders.AcceptLanguage.ParseAdd(acceptLanguage);
         return client;
     }
