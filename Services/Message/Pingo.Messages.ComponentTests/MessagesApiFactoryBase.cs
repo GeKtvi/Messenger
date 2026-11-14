@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using MassTransit;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -31,6 +32,8 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:Messages", "Host=unused-in-tests");
         // appsettings.Development.json isn't loaded in Testing, so the key comes from here.
         builder.UseSetting("Jwt:SigningKey", TestAccessTokens.SigningKey);
+        // Never connected to: the test harness below replaces RabbitMQ.
+        builder.UseSetting("ConnectionStrings:RabbitMq", "amqp://unused-in-tests/");
 
         builder.ConfigureTestServices(services =>
         {
@@ -42,6 +45,11 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
 
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Time);
+
+            // MassTransit's in-memory test harness instead of RabbitMQ: same consumers, and tests can
+            // publish events and see what was consumed.
+            services.AddMassTransitTestHarness(harness =>
+                harness.SetTestTimeouts(testInactivityTimeout: TimeSpan.FromSeconds(1)));
         });
     }
 

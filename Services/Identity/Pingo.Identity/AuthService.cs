@@ -1,4 +1,7 @@
 using CSharpFunctionalExtensions;
+using MassTransit;
+using Microsoft.Extensions.Logging;
+using Pingo.Contracts;
 using Pingo.Identity.Data;
 using Pingo.Identity.Models;
 using Pingo.Identity.Passwords;
@@ -14,8 +17,12 @@ internal class AuthService(
     IPasswordLoginRepository passwordLogins,
     IRefreshTokenRepository refreshTokens,
     TokenFactory tokens,
-    TimeProvider time) : IAuthService
+    IPublishEndpoint events,
+    TimeProvider time,
+    ILogger<AuthService> logger) : IAuthService
 {
+    private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(5);
+
     public async Task<Result<RegisteredUser, RegistrationError>> RegisterAsync(string email, string password, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
@@ -46,6 +53,7 @@ internal class AuthService(
         var refreshToken = tokens.CreateRefreshToken(now);
         await refreshTokens.AddAsync(new StoredRefreshToken(refreshToken.Hash, login.UserId, now, refreshToken.ExpiresAt), ct);
 
+        await PublishLoggedInAsync(login.NormalizedEmail, ct);
         return new AuthTokens(accessToken.Value, accessToken.ExpiresAt, refreshToken.Value, refreshToken.ExpiresAt);
     }
 
@@ -76,6 +84,24 @@ internal class AuthService(
     {
         ArgumentException.ThrowIfNullOrEmpty(refreshToken);
         return refreshTokens.DeleteAsync(TokenFactory.HashRefreshToken(refreshToken), ct);
+    }
+
+    // Tells other services about the login (the Message service greets the user). The login itself
+    // has already succeeded, so a broker problem is logged and doesn't turn it into an error, and
+    // the event is lost in that case (no outbox yet). With the broker down, MassTransit would wait
+    // for it indefinitely, so the publish gets a time limit.
+    private async Task PublishLoggedInAsync(string email, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(PublishTimeout);
+        try
+        {
+            await events.Publish(new UserLoggedIn(email), timeout.Token);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not publish UserLoggedIn within {Timeout}; the login itself succeeded", PublishTimeout);
+        }
     }
 
     // Emails are case-insensitive in practice, so "Ann@Example.com" and "ann@example.com" are one account.

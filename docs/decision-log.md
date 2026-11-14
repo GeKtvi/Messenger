@@ -1244,3 +1244,43 @@ product that references the next major Polly version directly.
 4 attempts fail, the outbox still marks the message "Not sent" with Retry (D-025), as checked in
 the browser with the Message API stopped. A failure now takes up to about 3.5 seconds of waiting
 before it shows. Requests to Identity get no retries.
+
+## D-059: Login events over RabbitMQ with MassTransit 8; the Message service greets the user
+
+- **Date:** 2026-11-12
+- **Stage:** 06
+- **Status:** Accepted
+
+**Context:** Stage 06 asks Identity to publish `UserLoggedIn { Email }` to RabbitMQ after a
+successful login, using MassTransit, and the Message service to consume it and post
+"Привет, user@example.com!" to the chat. MassTransit 9 is now a paid subscription (Massient's
+licence page names no free tier); 8.x stays free under Apache-2.0 but isn't supported by Massient.
+
+**Decision:**
+
+- MassTransit **8.5.12** (Apache-2.0), chosen over v9 and over the free alternatives compared
+  (Wolverine, Rebus, Brighter, plain `RabbitMQ.Client`) because it's what the task and most .NET jobs
+  use. The business layer references only `MassTransit.Abstractions` (`IPublishEndpoint`); the API
+  projects reference `MassTransit.RabbitMQ`.
+- RabbitMQ is `rabbitmq:4-management` in `docker-compose.yml`; both services read
+  `ConnectionStrings:RabbitMq`.
+- The event lives in a new shared `Shared/Pingo.Contracts` project, referenced by both services:
+  `record UserLoggedIn(string Email)` in namespace `Pingo.Contracts`. MassTransit identifies messages
+  by namespace and type name, so one definition can't drift between services.
+- `AuthService.LoginAsync` publishes the event with the normalized email after the refresh token is
+  stored. Failed logins, registration and refresh publish nothing.
+- The login doesn't depend on the broker: the publish has a 5-second limit, and any failure is
+  logged and swallowed. Without the limit a login hung for over 2 minutes with RabbitMQ stopped;
+  with it, the login answered `200` in 5.2 s. The event is lost in that case.
+- `UserLoggedInConsumer` (Message API) calls the idempotent `SendAsync` with the event's MassTransit
+  `MessageId` as the chat message id, so a redelivered event (RabbitMQ delivers at least once)
+  doesn't post a second greeting. Kebab-case endpoint names give the queue `user-logged-in`; several
+  Message instances share it. Failed attempts are retried in memory (0.2 s, 1 s, 5 s), then the
+  event goes to `user-logged-in_error`.
+- Component tests replace RabbitMQ with MassTransit's in-memory test harness
+  (`AddMassTransitTestHarness`) in both test factories.
+
+**Consequences:** Logins produce greetings within about a second, checked through the real RabbitMQ;
+both services reconnect by themselves after RabbitMQ restarts. The greeting is posted to the shared
+chat, which every user sees. Without a transactional outbox, an event can be lost when the broker is
+down at login time; MassTransit's outbox needs EF Core or MongoDB, and Identity uses Dapper.

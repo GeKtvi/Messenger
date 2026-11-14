@@ -1,6 +1,7 @@
 using Hangfire;
 using Pingo.Identity;
 using Pingo.Identity.Api.Jobs;
+using Pingo.Identity.Api.Messaging;
 using Pingo.Identity.Tokens;
 
 const string FrontendCorsPolicy = "Frontend";
@@ -18,6 +19,7 @@ builder.Services.AddPingoIdentity(
     builder.Configuration.GetConnectionString("Identity"),
     builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.AddPingoBackgroundJobs(builder.Configuration.GetConnectionString("Redis"));
+builder.Services.AddPingoMessaging(builder.Configuration.GetConnectionString("RabbitMq"));
 
 // The frontend calls Identity from another origin and needs the refresh token cookie sent along,
 // so credentials are allowed. That only works with exact origins, never "*".

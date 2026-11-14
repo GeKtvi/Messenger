@@ -47,6 +47,8 @@ Pingo.slnx
 │       ├── Pingo.Identity.Api              # API layer: registration, login, token refresh (Swagger UI)
 │       ├── Pingo.Identity                  # Business layer: users, password hashing, tokens
 │       └── Pingo.Identity.ComponentTests   # Component tests: the whole service over HTTP, real PostgreSQL
+├── Shared/
+│   └── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
 └── Frontend/
     ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
     └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
@@ -65,6 +67,10 @@ another issuer or audience) the answer is `401`. The service checks the token it
 `Jwt` issuer, audience and signing key as Identity, so it never calls Identity per request.
 
 Each message has a `sentAt` time and an `updatedAt` time, which is `null` until the message is edited.
+
+The service also listens to RabbitMQ: when Identity publishes `UserLoggedIn`, it posts
+"Привет, user@example.com!" to the chat. The event's id becomes the message id, so a redelivered
+event doesn't greet twice.
 
 Sending is idempotent. The client picks the message id (a `Guid`):
 
@@ -118,6 +124,9 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
   sets a new one and invalidates the old one. The session ends 30 days after login, however often
   it's refreshed.
 - **CORS:** the frontend's origins may call Identity with credentials (the cookie).
+- **Login event:** each successful login publishes `UserLoggedIn { Email }` to RabbitMQ through
+  MassTransit 8 (the Message service greets the user). If RabbitMQ is unreachable, the login still
+  succeeds after at most 5 seconds and the event is lost.
 - **Token cleanup:** a Hangfire job deletes expired refresh tokens once a day at 03:00 UTC, using an
   index on `expires_at`. Hangfire keeps its jobs in Redis (the `redis` service in
   `docker-compose.yml`, keys prefixed `pingo-identity:hangfire:`). In Development its dashboard is
@@ -183,6 +192,7 @@ dotnet test Pingo.slnx
 | `MessagesApiTests` | EF Core in-memory | Listing, sending, ordering, editing, trimming, length limit, validation errors |
 | `MessagesIdempotencyTests` | EF Core in-memory | Repeated requests, repeated and multiple edits, whitespace, stale retries |
 | `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins, preflights without a token, CORS headers on a 401 |
+| `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
 | `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
@@ -206,6 +216,7 @@ dotnet test Pingo.slnx
 | `ConcurrencyTests` | One refresh token used 10 times at once (forced race), one email registered 10 times at once |
 | `ValidationTests` | Email, password and refresh token length limits, invalid email, empty, null and malformed bodies |
 | `LocalizationTests` | Russian titles for every error, `?culture=ru`, language fallback order, English fallback |
+| `UserLoggedInEventTests` | `UserLoggedIn` published with the normalized email on every login, not on failed logins, registration or refresh |
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
@@ -229,7 +240,7 @@ dotnet test Pingo.slnx --filter "Category!=Docker"
 
 Requires the .NET 10 SDK and Docker.
 
-Start PostgreSQL and Redis (local dev credentials are in `docker-compose.yml` and the APIs'
+Start PostgreSQL, Redis and RabbitMQ (local dev credentials are in `docker-compose.yml` and the APIs'
 `appsettings.Development.json`):
 
 ```bash
@@ -254,5 +265,6 @@ Then open http://localhost:5221.
 
 - API: http://localhost:5230 (OpenAPI document at `/openapi/v1.json` in Development)
 - Identity API: http://localhost:5240, with Swagger UI at http://localhost:5240/swagger
+- RabbitMQ management UI: http://localhost:15672 (guest / guest): queues, exchanges, message rates
 - The frontend reads both API addresses from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.

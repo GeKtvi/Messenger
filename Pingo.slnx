@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/Pingo.Contracts/Pingo.Contracts.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path="CLAUDE.md" />
     <File Path="README.md" />

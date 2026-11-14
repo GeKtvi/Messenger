@@ -1,5 +1,6 @@
 using Pingo.Messages;
 using Pingo.Messages.Api.Auth;
+using Pingo.Messages.Api.Messaging;
 
 const string FrontendCorsPolicy = "Frontend";
 
@@ -10,6 +11,7 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddMessages(builder.Configuration.GetConnectionString("Messages"));
 builder.Services.AddPingoJwtAuthentication(builder.Configuration.GetSection(JwtValidationOptions.SectionName));
+builder.Services.AddPingoMessaging(builder.Configuration.GetConnectionString("RabbitMq"));
 
 builder.Services.AddCors(options =>
 {

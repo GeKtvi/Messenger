@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -73,6 +74,8 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Identity", _postgres.GetConnectionString());
         builder.UseSetting("ConnectionStrings:Redis", _redis.GetConnectionString());
+        // Never connected to: the test harness below replaces RabbitMQ.
+        builder.UseSetting("ConnectionStrings:RabbitMq", "amqp://unused-in-tests/");
         // appsettings.Development.json isn't loaded in Testing, so the key comes from here.
         builder.UseSetting("Jwt:SigningKey", SigningKey);
 
@@ -80,6 +83,10 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Time);
+
+            // MassTransit's in-memory test harness instead of RabbitMQ, so tests can see what was published.
+            services.AddMassTransitTestHarness(harness =>
+                harness.SetTestTimeouts(testInactivityTimeout: TimeSpan.FromSeconds(1)));
         });
     }
 
