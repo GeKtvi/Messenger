@@ -1320,3 +1320,36 @@ with its database calls.
 `process` → 2 × `postgresql`. Removing MassTransit's source or the Npgsql instrumentation makes the
 tests fail. Not covered yet: metrics and logs (only traces), the browser (traces start at the APIs),
 Redis and Hangfire jobs, and sampling (every request is traced). Jaeger loses its traces on restart.
+
+## D-061: Unit tests for login with Moq; failures checked as Result errors, not exceptions
+
+- **Date:** 2026-11-16
+- **Stage:** 06
+- **Status:** Accepted
+
+**Context:** Stage 06 asks for unit tests of the login logic alone, without a web host or database:
+Moq for every dependency (`IUserRepository`, `IPasswordHasher`, `IPublishEndpoint`, ...), `Setup()`
+for the calls needed and `Verify()` that `Publish()` was called. Its scenarios expect a
+`NotFoundException` for an unknown user and an `UnauthorizedException` for a wrong password, but login
+returns `Result<AuthTokens, LoginError>` instead of throwing (D-049).
+
+**Decision:**
+
+- Keep `Result` and deliberately deviate from the task's exceptions: the tests check
+  `LoginError.UserNotFound` and `LoginError.WrongPassword`. Throwing would undo D-049 for no gain.
+- New `Pingo.Identity.UnitTests` project (xUnit, FluentAssertions 7, Moq 4.21.0 under BSD-3-Clause,
+  with no SponsorLink dependency). `Pingo.Identity` grants `InternalsVisibleTo` to it and to
+  `DynamicProxyGenAssembly2`, where Moq builds mocks of internal interfaces.
+- The static `PasswordHasher` becomes `IPasswordHasher` with a `PasswordHasher` implementation,
+  registered as a singleton, so tests can replace the deliberately slow PBKDF2.
+- Mocked: the three repositories, `IPasswordHasher` and `IPublishEndpoint`. Real: `TokenFactory`
+  (pure computation), `FakeTimeProvider` and `NullLogger`.
+- Tests: tokens returned, the refresh token stored and `UserLoggedIn` published for a correct login;
+  `UserNotFound` and `WrongPassword` with nothing stored or published; email normalized for the
+  lookup and the event; a failing publish doesn't fail the login; the publish happens after the
+  refresh token is stored.
+
+**Consequences:** The six tests run in under a second with no Docker. Deliberately removing the
+publish, publishing first, swapping the errors, publishing the raw email and not catching publish
+failures each made the matching test fail. The component tests keep covering the same flow end to
+end with the real hasher and PostgreSQL.

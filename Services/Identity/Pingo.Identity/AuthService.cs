@@ -16,6 +16,7 @@ internal class AuthService(
     IUserRepository users,
     IPasswordLoginRepository passwordLogins,
     IRefreshTokenRepository refreshTokens,
+    IPasswordHasher passwords,
     TokenFactory tokens,
     IPublishEndpoint events,
     TimeProvider time,
@@ -30,7 +31,7 @@ internal class AuthService(
 
         var now = Now();
         var user = new User(Guid.CreateVersion7(), now);
-        var login = new PasswordLogin(user.Id, NormalizeEmail(email), PasswordHasher.Hash(password), now);
+        var login = new PasswordLogin(user.Id, NormalizeEmail(email), passwords.Hash(password), now);
 
         return await users.TryCreateWithPasswordLoginAsync(user, login, ct)
             ? new RegisteredUser(user.Id, user.RegisteredAt)
@@ -45,7 +46,7 @@ internal class AuthService(
         var login = await passwordLogins.FindByEmailAsync(NormalizeEmail(email), ct);
         if (login is null)
             return LoginError.UserNotFound;
-        if (!PasswordHasher.Verify(password, login.Password))
+        if (!passwords.Verify(password, login.Password))
             return LoginError.WrongPassword;
 
         var now = Now();

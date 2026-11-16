@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Pingo.Identity.ComponentTests" />
+    <InternalsVisibleTo Include="Pingo.Identity.UnitTests" />
+    <!-- Moq builds its mocks of internal interfaces in this dynamic assembly. -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 
   <ItemGroup>

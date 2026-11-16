@@ -28,7 +28,9 @@ Keeping it current is part of finishing any task, not optional.
   that those tests weren't run.
 - When you change Message service behaviour, add or update a component test in
   `Services/Message/Pingo.Messages.ComponentTests` that covers it. The same goes for Identity
-  service behaviour and `Services/Identity/Pingo.Identity.ComponentTests`.
+  service behaviour and `Services/Identity/Pingo.Identity.ComponentTests`. Changes to the
+  login logic in `AuthService` also need the unit tests in `Services/Identity/Pingo.Identity.UnitTests`
+  updated.
 - Stop a running API first if the build reports a locked `Pingo.Messages.Api.exe`.
 
 ## Homework stage tags

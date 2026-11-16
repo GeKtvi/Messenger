@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pingo.Identity.Data;
+using Pingo.Identity.Passwords;
 using Pingo.Identity.Tokens;
 
 namespace Pingo.Identity;
@@ -23,6 +24,7 @@ public static class IdentityServiceCollectionExtensions
         // first login.
         services.AddOptions<JwtOptions>().Bind(jwtSection).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<TokenFactory>();
+        services.AddSingleton<IPasswordHasher, PasswordHasher>();
 
         // Repositories hold no state, only the shared IdentityDatabase, so one instance each is enough.
         services.AddSingleton<IUserRepository, UserRepository>();

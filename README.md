@@ -46,7 +46,8 @@ Pingo.slnx
 │   └── Identity/
 │       ├── Pingo.Identity.Api              # API layer: registration, login, token refresh (Swagger UI)
 │       ├── Pingo.Identity                  # Business layer: users, password hashing, tokens
-│       └── Pingo.Identity.ComponentTests   # Component tests: the whole service over HTTP, real PostgreSQL
+│       ├── Pingo.Identity.ComponentTests   # Component tests: the whole service over HTTP, real PostgreSQL
+│       └── Pingo.Identity.UnitTests        # Unit tests: login logic with Moq, no database
 ├── Shared/
 │   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
 │   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing
@@ -233,6 +234,12 @@ dotnet test Pingo.slnx
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
+
+`Pingo.Identity.UnitTests` tests `AuthService.LoginAsync` alone, with Moq mocks for the
+repositories, the password hasher and MassTransit's `IPublishEndpoint` (no web host, database or
+broker): a correct login returns tokens, stores the refresh token and publishes `UserLoggedIn`; an
+unknown email or a wrong password returns the matching `LoginError` and stores and publishes nothing;
+the email is normalized; a failing publish doesn't fail the login.
 
 `Pingo.Frontend.Tests` runs the frontend's HTTP pipeline against fake Message and Identity APIs,
 with no browser or Docker:
