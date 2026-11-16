@@ -3,10 +3,12 @@ using Pingo.Identity;
 using Pingo.Identity.Api.Jobs;
 using Pingo.Identity.Api.Messaging;
 using Pingo.Identity.Tokens;
+using Pingo.ServiceDefaults;
 
 const string FrontendCorsPolicy = "Frontend";
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddPingoTelemetry("pingo-identity");
 
 builder.Services.AddControllers();
 // TypedResults.Problem() writes through IProblemDetailsService when it's registered, which adds the

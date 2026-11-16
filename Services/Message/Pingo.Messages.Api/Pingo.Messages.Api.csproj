@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Pingo.Messages\Pingo.Messages.csproj" />
     <ProjectReference Include="..\..\..\Shared\Pingo.Contracts\Pingo.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Pingo.ServiceDefaults\Pingo.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

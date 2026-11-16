@@ -1284,3 +1284,39 @@ licence page names no free tier); 8.x stays free under Apache-2.0 but isn't supp
 both services reconnect by themselves after RabbitMQ restarts. The greeting is posted to the shared
 chat, which every user sees. Without a transactional outbox, an event can be lost when the broker is
 down at login time; MassTransit's outbox needs EF Core or MongoDB, and Identity uses Dapper.
+
+## D-060: Distributed tracing with OpenTelemetry and Jaeger, set up once in Pingo.ServiceDefaults
+
+- **Date:** 2026-11-14
+- **Stage:** 06
+- **Status:** Accepted
+
+**Context:** Stage 06 asks for OpenTelemetry tracing in Identity and the Message service, exported to
+Jaeger over OTLP, with the context carried across HTTP and MassTransit, so one login shows as one
+trace: the HTTP request, Identity's database calls, the publish, and the Message service's handling
+with its database calls.
+
+**Decision:**
+
+- New shared project `Shared/Pingo.ServiceDefaults` (the .NET Aspire "service defaults" idea) with
+  `builder.AddPingoTelemetry(serviceName)`, used by both APIs (`pingo-identity`, `pingo-messages`),
+  so the setup can't drift between services.
+- Tracing: ASP.NET Core server spans (with exceptions), `HttpClient` spans, Npgsql command spans
+  (`Npgsql.OpenTelemetry`, which covers EF Core's queries too), and MassTransit's own
+  `ActivitySource`. OpenTelemetry .NET 1.21.0, Npgsql.OpenTelemetry 10.0.3.
+- Propagation needs no code: ASP.NET Core reads the W3C `traceparent` header, and MassTransit
+  writes the trace context into message headers on publish and restores it on consume.
+- Export: OTLP to `OpenTelemetry:OtlpEndpoint` (`http://localhost:4317` in development). Without that
+  setting, spans are recorded but not exported, which is what the tests rely on.
+- Jaeger `jaegertracing/jaeger:2.23.0` joins `docker-compose.yml` (UI on 16686, OTLP on 4317/4318),
+  storing traces in memory.
+- Component tests record spans with OpenTelemetry's in-memory exporter and check the trace shape:
+  in Identity, the server span contains the Npgsql spans and the publish; in the Message service (on
+  real PostgreSQL), the consumer's `process` span continues the publisher's trace and contains the
+  `INSERT` of the greeting.
+
+**Consequences:** In Jaeger, a login shows 8 spans across both services, 5 levels deep:
+`POST api/auth/login` → 2 × `postgresql` and `UserLoggedIn send` → `user-logged-in receive` →
+`process` → 2 × `postgresql`. Removing MassTransit's source or the Npgsql instrumentation makes the
+tests fail. Not covered yet: metrics and logs (only traces), the browser (traces start at the APIs),
+Redis and Hangfire jobs, and sampling (every request is traced). Jaeger loses its traces on restart.

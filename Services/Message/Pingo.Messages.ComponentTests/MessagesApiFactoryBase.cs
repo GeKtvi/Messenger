@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using MassTransit;
 using Microsoft.AspNetCore.Hosting;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Time.Testing;
+using OpenTelemetry.Trace;
 using Pingo.Messages.Data;
 
 namespace Pingo.Messages.ComponentTests;
@@ -16,6 +18,12 @@ namespace Pingo.Messages.ComponentTests;
 // once per test class instead of once per test. Subclasses choose the database.
 public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
 {
+    // Every span the app finishes, recorded in memory instead of sent to Jaeger. Tests can start
+    // their own spans from TestActivities, which the app's tracer also records.
+    public RecordedSpans Spans { get; } = new();
+
+    public static readonly ActivitySource TestActivities = new("Pingo.Messages.ComponentTests");
+
     // Tests control "now" through this clock instead of the system clock.
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
 
@@ -50,6 +58,10 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
             // publish events and see what was consumed.
             services.AddMassTransitTestHarness(harness =>
                 harness.SetTestTimeouts(testInactivityTimeout: TimeSpan.FromSeconds(1)));
+
+            services.ConfigureOpenTelemetryTracerProvider(tracing => tracing
+                .AddSource(TestActivities.Name)
+                .AddInMemoryExporter(Spans));
         });
     }
 

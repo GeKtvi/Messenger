@@ -47,6 +47,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # Collects traces from both services over OTLP and shows them (stage 06). UI: http://localhost:16686.
+  # Traces are kept in memory only, so they're gone after a restart.
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    container_name: messenger-jaeger
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP over gRPC (what the services send to)
+      - "4318:4318"     # OTLP over HTTP
+
 volumes:
   postgres-data:
   redis-data:

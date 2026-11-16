@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
+using OpenTelemetry.Trace;
 using Pingo.Identity.Data;
 using Respawn;
 using Respawn.Graph;
@@ -30,6 +31,9 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
     public const string SigningKey = "pingo-component-tests-signing-key-not-a-secret";
 
     private Respawner _respawner = null!;
+
+    // Every span the app finishes, recorded in memory instead of sent to Jaeger.
+    public RecordedSpans Spans { get; } = new();
 
     // Tests control "now" through this clock instead of the system clock.
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
@@ -87,6 +91,8 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
             // MassTransit's in-memory test harness instead of RabbitMQ, so tests can see what was published.
             services.AddMassTransitTestHarness(harness =>
                 harness.SetTestTimeouts(testInactivityTimeout: TimeSpan.FromSeconds(1)));
+
+            services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddInMemoryExporter(Spans));
         });
     }
 

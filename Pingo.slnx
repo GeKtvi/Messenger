@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Shared/">
     <Project Path="Shared/Pingo.Contracts/Pingo.Contracts.csproj" />
+    <Project Path="Shared/Pingo.ServiceDefaults/Pingo.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path="CLAUDE.md" />

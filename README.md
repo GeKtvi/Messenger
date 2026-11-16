@@ -48,7 +48,8 @@ Pingo.slnx
 │       ├── Pingo.Identity                  # Business layer: users, password hashing, tokens
 │       └── Pingo.Identity.ComponentTests   # Component tests: the whole service over HTTP, real PostgreSQL
 ├── Shared/
-│   └── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
+│   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
+│   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing
 └── Frontend/
     ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
     └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
@@ -139,6 +140,16 @@ Handles registration, login and tokens. It uses PostgreSQL through Dapper, with 
   `UnauthorizedProblem` result types, so the signatures document every response. That's cleaner and
   reusable, but over-engineered for a service this size (D-047, D-048).
 
+## Tracing
+
+Both services send traces to Jaeger through OpenTelemetry (setup in `Pingo.ServiceDefaults`). A
+login shows as one trace across both services: the HTTP request, Identity's PostgreSQL calls, the
+`UserLoggedIn` publish, and the Message service's consumer with its own PostgreSQL calls. The trace
+context travels in the `traceparent` HTTP header and in RabbitMQ message headers.
+
+Open http://localhost:16686, pick the service `pingo-identity` and the operation
+`POST api/auth/login`, then *Find Traces*.
+
 ## Frontend: signing in
 
 - Opening the app shows a login form, which can also create an account. Identity's error messages
@@ -193,6 +204,7 @@ dotnet test Pingo.slnx
 | `MessagesIdempotencyTests` | EF Core in-memory | Repeated requests, repeated and multiple edits, whitespace, stale retries |
 | `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins, preflights without a token, CORS headers on a 401 |
 | `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
+| `MessagesTracingTests` | Real PostgreSQL in Docker, MassTransit test harness | The consumer continues the publisher's trace, with the greeting's `INSERT` under its span |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
 | `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
@@ -217,6 +229,7 @@ dotnet test Pingo.slnx
 | `ValidationTests` | Email, password and refresh token length limits, invalid email, empty, null and malformed bodies |
 | `LocalizationTests` | Russian titles for every error, `?culture=ru`, language fallback order, English fallback |
 | `UserLoggedInEventTests` | `UserLoggedIn` published with the normalized email on every login, not on failed logins, registration or refresh |
+| `TracingTests` | A login is one trace: the HTTP span contains the PostgreSQL spans and the `UserLoggedIn` publish; a failed login publishes nothing |
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
@@ -240,7 +253,7 @@ dotnet test Pingo.slnx --filter "Category!=Docker"
 
 Requires the .NET 10 SDK and Docker.
 
-Start PostgreSQL, Redis and RabbitMQ (local dev credentials are in `docker-compose.yml` and the APIs'
+Start PostgreSQL, Redis, RabbitMQ and Jaeger (local dev credentials are in `docker-compose.yml` and the APIs'
 `appsettings.Development.json`):
 
 ```bash
@@ -266,5 +279,6 @@ Then open http://localhost:5221.
 - API: http://localhost:5230 (OpenAPI document at `/openapi/v1.json` in Development)
 - Identity API: http://localhost:5240, with Swagger UI at http://localhost:5240/swagger
 - RabbitMQ management UI: http://localhost:15672 (guest / guest): queues, exchanges, message rates
+- Jaeger UI: http://localhost:16686: traces from both services
 - The frontend reads both API addresses from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.

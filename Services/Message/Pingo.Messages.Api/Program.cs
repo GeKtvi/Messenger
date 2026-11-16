@@ -1,10 +1,12 @@
 using Pingo.Messages;
 using Pingo.Messages.Api.Auth;
 using Pingo.Messages.Api.Messaging;
+using Pingo.ServiceDefaults;
 
 const string FrontendCorsPolicy = "Frontend";
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddPingoTelemetry("pingo-messages");
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
