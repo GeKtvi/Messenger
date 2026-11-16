@@ -19,6 +19,7 @@ two digits starting at `01` (`01`, `02`, `03`, ...).
 | `03` | Identity service: Dapper + SQL migrations, registration with PBKDF2, login with JWT and refresh tokens, refresh token rotation |
 | `04` | Distinct localized Problem Details errors, CSharpFunctionalExtensions results, Identity component tests with Testcontainers and Respawn |
 | `05` | Hangfire + Redis cleanup of expired refresh tokens, JWT auth in the Message service, login UI with an HttpOnly refresh cookie, refresh on 401, retries with Http.Resilience |
+| `06` | Login event over RabbitMQ with MassTransit (greeting in the chat), OpenTelemetry tracing to Jaeger across both services, login unit tests with Moq |
 
 To finish a stage:
 
