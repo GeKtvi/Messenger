@@ -13,6 +13,8 @@ builder.AddPingoHealth();
 builder.Services.AddSingleton<ILoadBalancingPolicy, RegionOrderPolicy>();
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    // Without a limit, a request to a region that is gone can hang for several seconds before failing.
+    .ConfigureHttpClient((_, handler) => handler.ConnectTimeout = TimeSpan.FromSeconds(2))
     // Shows which region answered.
     .AddTransforms(transforms => transforms.AddResponseTransform(context =>
     {
@@ -27,3 +29,6 @@ app.MapPingoHealth();
 app.MapReverseProxy();
 
 app.Run();
+
+// Lets the tests start the edge through WebApplicationFactory<Program>.
+public partial class Program;

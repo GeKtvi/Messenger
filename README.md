@@ -53,7 +53,8 @@ Pingo.slnx
 │   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
 │   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing, /health
 ├── Edge/
-│   └── Pingo.Edge                          # YARP reverse proxy in front of the frontend and APIs
+│   ├── Pingo.Edge                          # YARP reverse proxy in front of the frontend and APIs
+│   └── Pingo.Edge.Tests                    # Region choice and failover against fake APIs
 ├── deploy/
 │   └── multi-region                        # Docker Compose lab: three regions with artificial delays
 └── Frontend/
@@ -260,6 +261,10 @@ with no browser or Docker:
 |---|---|
 | `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
 | `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token |
+
+`Pingo.Edge.Tests` runs the real edge in front of fake APIs on local ports, with no Docker
+(`FailoverTests`): region order, failing over when an API stops or reports unhealthy, returning when
+it's back, each service on its own, and every region being down.
 
 The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
 every insert until all requests have reached it, then releases them together. To skip all Docker tests:

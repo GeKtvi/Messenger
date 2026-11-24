@@ -22,6 +22,7 @@
     <File Path="deploy/multi-region/wan-setup.sh" />
   </Folder>
   <Folder Name="/Edge/">
+    <Project Path="Edge/Pingo.Edge.Tests/Pingo.Edge.Tests.csproj" />
     <Project Path="Edge/Pingo.Edge/Pingo.Edge.csproj" />
   </Folder>
   <Folder Name="/Services/" />

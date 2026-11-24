@@ -1467,3 +1467,32 @@ Azure) can get their own folder next to it. The Compose project keeps the name `
 containers and data stay in use.
 
 **Consequences:** Paths starting with `lab/` in D-064 and D-065 are historical.
+
+## D-067: Failover through active health checks in the edge
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The edges kept sending requests to a stopped region (D-065).
+
+**Decision:**
+
+- YARP active health checks on `/health` (D-062) for both API clusters: every second, 2 s timeout, and
+  two failures in a row make a destination unhealthy. One success brings it back. Two failures rather
+  than one, so a single lost probe doesn't move all traffic.
+- `RegionOrderPolicy` doesn't change: YARP already passes it only the available regions.
+- Keep YARP's default, `HealthyOrPanic`: when every region is unhealthy, requests are still tried in
+  order, since broken checks are more likely than three dead regions.
+- Connecting is limited to 2 s and a whole request to 10 s without activity, so a dead or frozen API
+  fails instead of hanging. The edge doesn't retry: the frontend already does, and only for calls
+  that are safe to repeat (D-058).
+- In the lab, the edges give up DNS lookups after a second (`dns_opt`). Docker takes about 8 s to
+  fail on the name of a stopped container, and the connect timeout doesn't interrupt the lookup.
+- `Pingo.Edge.Tests` runs the real edge with its real configuration in front of fake APIs that can be
+  stopped and started.
+
+**Consequences:** In the lab, killing an API caused errors for 4 to 5.5 s. A message sent from the
+browser in that gap got two `502`s and then a `201` from the frontend's retries, with the same id. A
+dead PostgreSQL still fails every region. Turning the checks off, or reversing the region order, made
+most of the failover tests fail.

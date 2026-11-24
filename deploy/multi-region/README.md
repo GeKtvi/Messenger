@@ -74,6 +74,32 @@ With one database, the nearest region is never faster. Listing is one query, so 
 way. Sending is two queries and logging in is more, and from a nearby API each of them is a long
 trip, while one trip to the EU covers the whole request. (The numbers are from one run and vary a bit.)
 
+## Experiment: failover
+
+Every edge asks each API for `/health` once a second. After two failures in a row the API gets no more
+traffic until a check succeeds again. This is per service, so logins stay in Asia while its chat moves:
+
+```bash
+docker compose -f deploy/multi-region/docker-compose.yml kill messages-asia
+```
+
+Use the chat on http://localhost:8003 and watch `X-Pingo-Region` change from `asia` to `us`. Then:
+
+```bash
+docker compose -f deploy/multi-region/docker-compose.yml start messages-asia
+```
+
+| What happens in Asia | Result |
+|---|---|
+| `kill messages-asia` | Errors for 4 to 5.5 s, then the US answers |
+| `start messages-asia` | The US keeps answering for 4 to 5 s, with no errors, then Asia again |
+| `pause messages-asia` (frozen, port open) | A request already waiting fails after 10 s; later ones go to the US |
+| `stop messages-us` as well | The EU answers |
+| `stop postgres` | Every region answers `500`: the APIs are alive, so there's nothing to fail over to |
+
+The frontend retries Message API calls, so a message sent during the gap still arrives, just later.
+Identity calls aren't retried, so a login during its gap fails and has to be repeated.
+
 ## Good to know
 
 - The browser talks to one origin, so there are no CORS preflights, and the `SameSite=Strict` refresh
