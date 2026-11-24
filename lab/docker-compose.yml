@@ -2,19 +2,153 @@
 # data. See README.md. Credentials here are for this lab only.
 name: pingo-lab
 
+x-edge: &edge
+  image: pingo-edge
+  build:
+    context: ..
+    dockerfile: lab/Pingo.Edge/Dockerfile
+
+x-identity: &identity
+  image: pingo-identity
+  build:
+    context: ..
+    dockerfile: Services/Identity/Pingo.Identity.Api/Dockerfile
+  depends_on: &api-depends-on
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    rabbitmq: { condition: service_healthy }
+    wan-setup: { condition: service_completed_successfully }
+
+x-messages: &messages
+  image: pingo-messages
+  build:
+    context: ..
+    dockerfile: Services/Message/Pingo.Messages.Api/Dockerfile
+  depends_on: *api-depends-on
+
+x-api-environment: &api-environment
+  Jwt__SigningKey: pingo-lab-signing-key-never-use-in-production
+  OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+
 services:
-  # The only address the browser uses.
+  # ---- EU: next to the database --------------------------------------------------------------------
   edge-eu:
-    image: pingo-edge
-    build:
-      context: ..
-      dockerfile: lab/Pingo.Edge/Dockerfile
+    <<: *edge
     environment:
       OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
+      Edge__RegionOrder: ${REGION_ORDER:-eu,us,asia}
+      ReverseProxy__Clusters__identity__Destinations__eu__Address: http://identity-eu:8080
+      ReverseProxy__Clusters__identity__Destinations__us__Address: http://wan-eu:8201
+      ReverseProxy__Clusters__identity__Destinations__asia__Address: http://wan-eu:8301
+      ReverseProxy__Clusters__messages__Destinations__eu__Address: http://messages-eu:8080
+      ReverseProxy__Clusters__messages__Destinations__us__Address: http://wan-eu:8202
+      ReverseProxy__Clusters__messages__Destinations__asia__Address: http://wan-eu:8302
     ports:
       - "8001:8080"
-    depends_on: [identity-eu, messages-eu, frontend]
 
+  identity-eu:
+    <<: *identity
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
+      # GSS Encryption Mode: there is no Kerberos here, and by default Npgsql logs that its library is missing.
+      ConnectionStrings__Identity: "Host=postgres;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__Redis: redis:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+
+  messages-eu:
+    <<: *messages
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
+      ConnectionStrings__Messages: "Host=postgres;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+
+  # ---- US ------------------------------------------------------------------------------------------
+  edge-us:
+    <<: *edge
+    environment:
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
+      Edge__RegionOrder: ${REGION_ORDER:-us,eu,asia}
+      ReverseProxy__Clusters__identity__Destinations__eu__Address: http://wan-us:8101
+      ReverseProxy__Clusters__identity__Destinations__us__Address: http://identity-us:8080
+      ReverseProxy__Clusters__identity__Destinations__asia__Address: http://wan-us:8301
+      ReverseProxy__Clusters__messages__Destinations__eu__Address: http://wan-us:8102
+      ReverseProxy__Clusters__messages__Destinations__us__Address: http://messages-us:8080
+      ReverseProxy__Clusters__messages__Destinations__asia__Address: http://wan-us:8302
+    ports:
+      - "8002:8080"
+
+  identity-us:
+    <<: *identity
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
+      ConnectionStrings__Identity: "Host=wan-us;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__Redis: wan-us:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-us:5672/
+
+  messages-us:
+    <<: *messages
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
+      ConnectionStrings__Messages: "Host=wan-us;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-us:5672/
+
+  # ---- Asia ----------------------------------------------------------------------------------------
+  edge-asia:
+    <<: *edge
+    environment:
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
+      Edge__RegionOrder: ${REGION_ORDER:-asia,us,eu}
+      ReverseProxy__Clusters__identity__Destinations__eu__Address: http://wan-asia:8101
+      ReverseProxy__Clusters__identity__Destinations__us__Address: http://wan-asia:8201
+      ReverseProxy__Clusters__identity__Destinations__asia__Address: http://identity-asia:8080
+      ReverseProxy__Clusters__messages__Destinations__eu__Address: http://wan-asia:8102
+      ReverseProxy__Clusters__messages__Destinations__us__Address: http://wan-asia:8202
+      ReverseProxy__Clusters__messages__Destinations__asia__Address: http://messages-asia:8080
+    ports:
+      - "8003:8080"
+
+  identity-asia:
+    <<: *identity
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
+      ConnectionStrings__Identity: "Host=wan-asia;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__Redis: wan-asia:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-asia:5672/
+
+  messages-asia:
+    <<: *messages
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
+      ConnectionStrings__Messages: "Host=wan-asia;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-asia:5672/
+
+  # ---- The distance between the regions ------------------------------------------------------------
+  wan-eu: &wan
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+
+  wan-us: *wan
+
+  wan-asia: *wan
+
+  # Sets the delays and exits.
+  wan-setup:
+    image: curlimages/curl:8.16.0
+    command: ["sh", "/wan-setup.sh"]
+    volumes:
+      - ./wan-setup.sh:/wan-setup.sh:ro
+    depends_on: [wan-eu, wan-us, wan-asia]
+
+  # ---- Shared --------------------------------------------------------------------------------------
+  # The same static files for every region, without a delay: a real edge would have them cached.
   frontend:
     image: pingo-frontend
     build:
@@ -23,37 +157,6 @@ services:
     volumes:
       # API addresses relative to the page, so the app calls whichever edge it was loaded from.
       - ./frontend-appsettings.json:/usr/share/nginx/html/appsettings.json:ro
-
-  identity-eu:
-    image: pingo-identity
-    build:
-      context: ..
-      dockerfile: Services/Identity/Pingo.Identity.Api/Dockerfile
-    environment:
-      # GSS Encryption Mode: there is no Kerberos here, and by default Npgsql logs that its library is missing.
-      ConnectionStrings__Identity: "Host=postgres;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
-      ConnectionStrings__Redis: redis:6379
-      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
-      Jwt__SigningKey: &jwt-key pingo-lab-signing-key-never-use-in-production
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
-
-  messages-eu:
-    image: pingo-messages
-    build:
-      context: ..
-      dockerfile: Services/Message/Pingo.Messages.Api/Dockerfile
-    environment:
-      ConnectionStrings__Messages: "Host=postgres;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
-      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
-      Jwt__SigningKey: *jwt-key
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
-    depends_on:
-      postgres: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
 
   postgres:
     image: postgres:17

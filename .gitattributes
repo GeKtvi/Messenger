@@ -1,0 +1,2 @@
+# Run by sh inside Linux containers, which fails on CRLF line endings.
+*.sh text eol=lf

@@ -322,4 +322,5 @@ the APIs get connection strings and the JWT key from environment variables, e.g.
 
 ## Multi-region lab
 
-[lab/README.md](lab/README.md) runs Pingo from these images behind one reverse proxy.
+[lab/README.md](lab/README.md) runs Pingo from these images in three pretend regions,
+with artificial delays between them.

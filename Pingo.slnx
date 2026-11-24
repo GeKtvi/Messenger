@@ -16,7 +16,9 @@
   </Folder>
   <Folder Name="/lab/">
     <File Path="lab/docker-compose.yml" />
+    <File Path="lab/measure.py" />
     <File Path="lab/README.md" />
+    <File Path="lab/wan-setup.sh" />
     <Project Path="lab/Pingo.Edge/Pingo.Edge.csproj" />
   </Folder>
   <Folder Name="/Services/" />

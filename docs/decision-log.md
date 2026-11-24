@@ -1426,3 +1426,28 @@ Front Door: one address that routes by path and, later, picks a region and fails
 unchanged. The same routing carries over to Front Door. The edge is configuration only, so it has no
 tests; it was checked end to end in the browser and in Jaeger. Cookies ignore ports, so the lab and a
 locally run Pingo share the refresh cookie on `localhost`.
+
+## D-065: Three lab regions: Toxiproxy for distance, an ordered region list per edge
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The lab needs three regions that share one database, with realistic delays between them,
+and a way to compare nearest-region routing with sending everyone to the region next to the database.
+
+**Decision:**
+
+- EU, US and Asia each get an edge (ports 8001 to 8003), an Identity and a Message API. PostgreSQL,
+  Redis and RabbitMQ exist once and count as being in the EU.
+- Delays come from Toxiproxy 2.12.0 (MIT), one container per source region, configured by a one-shot
+  `wan-setup` container. The delay is on both kinds of link, edge to another region and API to the
+  EU's storage; with only one of them, the two routing strategies couldn't be compared fairly.
+- `RegionOrderPolicy`, a YARP load balancing policy, picks the first available region from
+  `Edge:RegionOrder`. One setting covers both strategies: nearest first, or the EU first everywhere.
+- Responses carry `X-Pingo-Region`, and spans a `cloud.region` tag (`OTEL_RESOURCE_ATTRIBUTES`).
+- `*.sh` files always have LF line endings (`.gitattributes`), since they run in Linux containers.
+
+**Consequences:** `lab/measure.py` shows that with one database the nearest region is never faster: from
+Asia, sending a message takes about 420 ms through the nearest API and 210 ms through the EU. There is
+no failover yet: a stopped region still gets its traffic until health checks are added.
