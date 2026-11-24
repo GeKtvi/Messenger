@@ -26,7 +26,7 @@ frontend's files aren't delayed either, as if each edge had them cached.
 From the repository root:
 
 ```bash
-docker compose -f lab/docker-compose.yml up -d --build
+docker compose -f deploy/multi-region/docker-compose.yml up -d --build
 ```
 
 - Pingo, as seen from each region: http://localhost:8001 (EU), http://localhost:8002 (US),
@@ -37,7 +37,7 @@ docker compose -f lab/docker-compose.yml up -d --build
 Stop it, keeping the messages (add `-v` to delete them too):
 
 ```bash
-docker compose -f lab/docker-compose.yml down
+docker compose -f deploy/multi-region/docker-compose.yml down
 ```
 
 ## Routing
@@ -47,19 +47,19 @@ default the nearest region comes first. To send everyone to the EU, next to the 
 same order on every edge:
 
 ```powershell
-$env:REGION_ORDER = 'eu,us,asia'; docker compose -f lab/docker-compose.yml up -d
+$env:REGION_ORDER = 'eu,us,asia'; docker compose -f deploy/multi-region/docker-compose.yml up -d
 ```
 
 And back to the nearest region:
 
 ```powershell
-$env:REGION_ORDER = $null; docker compose -f lab/docker-compose.yml up -d
+$env:REGION_ORDER = $null; docker compose -f deploy/multi-region/docker-compose.yml up -d
 ```
 
 ## Experiment: is the nearest region faster?
 
 ```bash
-python lab/measure.py
+python deploy/multi-region/measure.py
 ```
 
 | User in | Routing | List messages | Send message | Log in |

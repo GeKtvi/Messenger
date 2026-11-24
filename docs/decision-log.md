@@ -1451,3 +1451,19 @@ and a way to compare nearest-region routing with sending everyone to the region 
 **Consequences:** `lab/measure.py` shows that with one database the nearest region is never faster: from
 Asia, sending a message takes about 420 ms through the nearest API and 210 ms through the EU. There is
 no failover yet: a stopped region still gets its traffic until health checks are added.
+
+## D-066: The lab's folder becomes `Edge/` for the code and `deploy/multi-region/` for the setup
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The folder `lab/` (D-064, D-065) said nothing about its contents and mixed a project's
+source code with container configuration and scripts.
+
+**Decision:** `Pingo.Edge` moves to `Edge/`, a top-level folder like `Services/` and `Frontend/`. The
+Compose file, its settings and scripts move to `deploy/multi-region/`, so other ways to deploy (such as
+Azure) can get their own folder next to it. The Compose project keeps the name `pingo-lab`, so existing
+containers and data stay in use.
+
+**Consequences:** Paths starting with `lab/` in D-064 and D-065 are historical.

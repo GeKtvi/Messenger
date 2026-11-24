@@ -52,8 +52,10 @@ Pingo.slnx
 ├── Shared/
 │   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
 │   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing, /health
-├── lab/
-│   └── Pingo.Edge                          # YARP reverse proxy for the multi-region lab
+├── Edge/
+│   └── Pingo.Edge                          # YARP reverse proxy in front of the frontend and APIs
+├── deploy/
+│   └── multi-region                        # Docker Compose lab: three regions with artificial delays
 └── Frontend/
     ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
     └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
@@ -322,5 +324,5 @@ the APIs get connection strings and the JWT key from environment variables, e.g.
 
 ## Multi-region lab
 
-[lab/README.md](lab/README.md) runs Pingo from these images in three pretend regions,
+[deploy/multi-region/README.md](deploy/multi-region/README.md) runs Pingo from these images in three pretend regions,
 with artificial delays between them.

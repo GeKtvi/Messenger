@@ -5,13 +5,13 @@ name: pingo-lab
 x-edge: &edge
   image: pingo-edge
   build:
-    context: ..
-    dockerfile: lab/Pingo.Edge/Dockerfile
+    context: ../..
+    dockerfile: Edge/Pingo.Edge/Dockerfile
 
 x-identity: &identity
   image: pingo-identity
   build:
-    context: ..
+    context: ../..
     dockerfile: Services/Identity/Pingo.Identity.Api/Dockerfile
   depends_on: &api-depends-on
     postgres: { condition: service_healthy }
@@ -22,7 +22,7 @@ x-identity: &identity
 x-messages: &messages
   image: pingo-messages
   build:
-    context: ..
+    context: ../..
     dockerfile: Services/Message/Pingo.Messages.Api/Dockerfile
   depends_on: *api-depends-on
 
@@ -152,7 +152,7 @@ services:
   frontend:
     image: pingo-frontend
     build:
-      context: ..
+      context: ../..
       dockerfile: Frontend/Pingo.Frontend/Dockerfile
     volumes:
       # API addresses relative to the page, so the app calls whichever edge it was loaded from.

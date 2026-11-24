@@ -14,12 +14,15 @@
     <Project Path="Frontend/Pingo.Frontend.Tests/Pingo.Frontend.Tests.csproj" />
     <Project Path="Frontend/Pingo.Frontend/Pingo.Frontend.csproj" />
   </Folder>
-  <Folder Name="/lab/">
-    <File Path="lab/docker-compose.yml" />
-    <File Path="lab/measure.py" />
-    <File Path="lab/README.md" />
-    <File Path="lab/wan-setup.sh" />
-    <Project Path="lab/Pingo.Edge/Pingo.Edge.csproj" />
+  <Folder Name="/deploy/" />
+  <Folder Name="/deploy/multi-region/">
+    <File Path="deploy/multi-region/docker-compose.yml" />
+    <File Path="deploy/multi-region/measure.py" />
+    <File Path="deploy/multi-region/README.md" />
+    <File Path="deploy/multi-region/wan-setup.sh" />
+  </Folder>
+  <Folder Name="/Edge/">
+    <Project Path="Edge/Pingo.Edge/Pingo.Edge.csproj" />
   </Folder>
   <Folder Name="/Services/" />
   <Folder Name="/Services/Identity/">

@@ -1,4 +1,4 @@
-"""Measures the lab from each region's edge: python lab/measure.py
+"""Measures the lab from each region's edge: python deploy/multi-region/measure.py
 
 Prints the median time of 7 requests and which region answered. Needs only Python.
 """
