@@ -7,6 +7,7 @@ const string FrontendCorsPolicy = "Frontend";
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddPingoTelemetry("pingo-messages");
+builder.AddPingoHealth();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -40,6 +41,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapPingoHealth();
 
 app.Run();
 

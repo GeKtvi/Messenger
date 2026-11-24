@@ -51,7 +51,7 @@ Pingo.slnx
 │       └── Pingo.Identity.UnitTests        # Unit tests: login logic with Moq, no database
 ├── Shared/
 │   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
-│   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing
+│   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing, /health
 └── Frontend/
     ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
     └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
@@ -152,6 +152,11 @@ context travels in the `traceparent` HTTP header and in RabbitMQ message headers
 Open http://localhost:16686, pick the service `pingo-identity` and the operation
 `POST api/auth/login`, then *Find Traces*.
 
+## Health check
+
+Both APIs answer `GET /health` with `200 Healthy`, without a token. It says only that the instance is
+running, not that PostgreSQL or RabbitMQ is reachable (D-062), and it isn't traced.
+
 ## Frontend: signing in
 
 - Opening the app shows a login form, which can also create an account. Identity's error messages
@@ -207,6 +212,7 @@ dotnet test Pingo.slnx
 | `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins, preflights without a token, CORS headers on a 401 |
 | `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
 | `MessagesTracingTests` | Real PostgreSQL in Docker, MassTransit test harness | The consumer continues the publisher's trace, with the greeting's `INSERT` under its span |
+| `MessagesHealthTests` | EF Core in-memory | `/health` without a token, with a failing dependency, and not traced |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
 | `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
@@ -234,6 +240,7 @@ dotnet test Pingo.slnx
 | `TracingTests` | A login is one trace: the HTTP span contains the PostgreSQL spans and the `UserLoggedIn` publish; a failed login publishes nothing |
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
+| `HealthTests` | `/health` answers |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
 
 `Pingo.Identity.UnitTests` tests `AuthService.LoginAsync` alone, with Moq mocks for the
@@ -290,3 +297,23 @@ Then open http://localhost:5221.
 - Jaeger UI: http://localhost:16686: traces from both services
 - The frontend reads both API addresses from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.
+
+## Docker images
+
+Each API and the frontend has a `Dockerfile`. Build them from the repository root:
+
+```bash
+docker build -f Services/Identity/Pingo.Identity.Api/Dockerfile -t pingo-identity .
+```
+
+```bash
+docker build -f Services/Message/Pingo.Messages.Api/Dockerfile -t pingo-messages .
+```
+
+```bash
+docker build -f Frontend/Pingo.Frontend/Dockerfile -t pingo-frontend .
+```
+
+All three listen on port 8080 and run as a non-root user. The images contain no passwords or keys:
+the APIs get connection strings and the JWT key from environment variables, e.g.
+`ConnectionStrings__Messages` and `Jwt__SigningKey`.

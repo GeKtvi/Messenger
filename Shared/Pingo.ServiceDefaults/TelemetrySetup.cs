@@ -26,7 +26,12 @@ public static class TelemetrySetup
             .WithTracing(tracing =>
             {
                 tracing
-                    .AddAspNetCoreInstrumentation(options => options.RecordException = true)
+                    .AddAspNetCoreInstrumentation(options =>
+                    {
+                        options.RecordException = true;
+                        // Load balancers probe this every few seconds, which would bury real traces.
+                        options.Filter = context => context.Request.Path != HealthSetup.HealthPath;
+                    })
                     .AddHttpClientInstrumentation()
                     .AddNpgsql()
                     .AddSource(MassTransitSource);

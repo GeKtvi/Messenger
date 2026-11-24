@@ -1353,3 +1353,51 @@ returns `Result<AuthTokens, LoginError>` instead of throwing (D-049).
 publish, publishing first, swapping the errors, publishing the raw email and not catching publish
 failures each made the matching test fail. The component tests keep covering the same flow end to
 end with the real hasher and PostgreSQL.
+
+## D-062: `/health` on both APIs reports only that the instance is alive
+
+- **Date:** 2026-11-24
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The multi-region lab puts a reverse proxy in front of several copies of each API. The
+proxy needs to know which copies can take requests. All copies share one PostgreSQL and one RabbitMQ.
+
+**Decision:**
+
+- `GET /health`, anonymous, on both APIs, through ASP.NET Core health checks set up once in
+  `Pingo.ServiceDefaults` (`AddPingoHealth`, `MapPingoHealth`).
+- It runs no dependency checks, and leaves out the bus check MassTransit registers by itself. With a
+  shared database, a dependency check would fail in every region at once, leaving nowhere to route.
+- Requests to `/health` aren't traced: probes every few seconds would bury real traces in Jaeger.
+
+**Consequences:** An instance that runs but can't reach PostgreSQL still counts as healthy, and so
+does Identity while its migrations are running (requests wait for them, D-035). A separate readiness
+endpoint can be added if an orchestrator needs it. Component tests cover it; running all checks and
+removing the trace filter each made the matching test fail.
+
+## D-063: Hand-written multi-stage Dockerfiles, one per deployable project
+
+- **Date:** 2026-11-24
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The lab, and later Azure Container Apps, need images of the APIs and the frontend. The
+.NET SDK can build API images without a Dockerfile (`dotnet publish /t:PublishContainer`), but not
+one that serves the frontend's static files from nginx.
+
+**Decision:**
+
+- One `Dockerfile` next to each project, built from the repository root because of `Shared/`. Project
+  files are copied and restored before the source, so a code change doesn't restore packages again.
+- APIs run on `aspnet:10.0`. It includes ICU, which the Russian error messages need; the alpine image
+  doesn't by default.
+- The frontend runs on `nginxinc/nginx-unprivileged:1.30-alpine` and sends the `.gz` files publishing
+  already made. Content-hashed `_framework` files are cached for a year, everything else is revalidated.
+- All three run as a non-root user on port 8080.
+- `.dockerignore` keeps `appsettings.Development.json` out of the images, so they contain no
+  credentials or signing key. Containers get those from environment variables.
+
+**Consequences:** An image doesn't start without its settings. A project reference added to an API
+also needs its `COPY` line in the Dockerfile. The frontend image still has the API addresses of
+local development; pointing it elsewhere means mounting another `appsettings.json`.

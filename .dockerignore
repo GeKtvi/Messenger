@@ -1,0 +1,16 @@
+# Everything a Docker build doesn't need. Local build output must never reach an image: bin/obj hold
+# Windows paths and Debug files.
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+.git/
+.claude/
+docs/
+**/*.md
+**/Dockerfile
+**/*Tests/
+
+# Development-only settings (local passwords, JWT key). Containers get theirs from environment variables.
+**/appsettings.Development.json
+**/launchSettings.json
