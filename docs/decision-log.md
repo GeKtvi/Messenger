@@ -1401,3 +1401,28 @@ one that serves the frontend's static files from nginx.
 **Consequences:** An image doesn't start without its settings. A project reference added to an API
 also needs its `COPY` line in the Dockerfile. The frontend image still has the API addresses of
 local development; pointing it elsewhere means mounting another `appsettings.json`.
+
+## D-064: The lab's edge is a YARP proxy that serves the frontend and APIs on one origin
+
+- **Date:** 2026-11-24
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The multi-region lab needs a local stand-in for a global load balancer such as Azure
+Front Door: one address that routes by path and, later, picks a region and fails over.
+
+**Decision:**
+
+- `lab/Pingo.Edge`: an ASP.NET Core app with `Yarp.ReverseProxy` 2.3.0 (Microsoft, MIT), configured in
+  `appsettings.json`. `/api/auth/*` goes to Identity, `/api/messages/*` to the Message service, and
+  everything else to the frontend's nginx. YARP over nginx because it has active health checks built
+  in, stays in C#, and takes part in our traces through `Pingo.ServiceDefaults`.
+- `lab/docker-compose.yml` is a separate Compose project (`pingo-lab`) with its own data, so the
+  development setup is untouched. Only the edge (8001) and Jaeger (16687) have host ports.
+- The frontend's `BaseUrl` settings may be relative: `/` means the origin the app was loaded from. The
+  lab mounts such an `appsettings.json` into the frontend container; absolute addresses work as before.
+
+**Consequences:** With one origin there's no CORS preflight, and the `SameSite=Strict` cookie works
+unchanged. The same routing carries over to Front Door. The edge is configuration only, so it has no
+tests; it was checked end to end in the browser and in Jaeger. Cookies ignore ports, so the lab and a
+locally run Pingo share the refresh cookie on `localhost`.

@@ -1,0 +1,96 @@
+# Multi-region lab, separate from the development docker-compose.yml: its own containers, network and
+# data. See README.md. Credentials here are for this lab only.
+name: pingo-lab
+
+services:
+  # The only address the browser uses.
+  edge-eu:
+    image: pingo-edge
+    build:
+      context: ..
+      dockerfile: lab/Pingo.Edge/Dockerfile
+    environment:
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+    ports:
+      - "8001:8080"
+    depends_on: [identity-eu, messages-eu, frontend]
+
+  frontend:
+    image: pingo-frontend
+    build:
+      context: ..
+      dockerfile: Frontend/Pingo.Frontend/Dockerfile
+    volumes:
+      # API addresses relative to the page, so the app calls whichever edge it was loaded from.
+      - ./frontend-appsettings.json:/usr/share/nginx/html/appsettings.json:ro
+
+  identity-eu:
+    image: pingo-identity
+    build:
+      context: ..
+      dockerfile: Services/Identity/Pingo.Identity.Api/Dockerfile
+    environment:
+      # GSS Encryption Mode: there is no Kerberos here, and by default Npgsql logs that its library is missing.
+      ConnectionStrings__Identity: "Host=postgres;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__Redis: redis:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+      Jwt__SigningKey: &jwt-key pingo-lab-signing-key-never-use-in-production
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  messages-eu:
+    image: pingo-messages
+    build:
+      context: ..
+      dockerfile: Services/Message/Pingo.Messages.Api/Dockerfile
+    environment:
+      ConnectionStrings__Messages: "Host=postgres;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+      Jwt__SigningKey: *jwt-key
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: messenger_messages
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: messenger
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP: while the image sets up the database, it listens only on a Unix socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U messenger -d messenger_messages"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # UI on another port than the development Jaeger, so both can run.
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    ports:
+      - "16687:16686"
+
+volumes:
+  postgres-data:

@@ -52,6 +52,8 @@ Pingo.slnx
 ├── Shared/
 │   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
 │   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing, /health
+├── lab/
+│   └── Pingo.Edge                          # YARP reverse proxy for the multi-region lab
 └── Frontend/
     ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
     └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
@@ -317,3 +319,7 @@ docker build -f Frontend/Pingo.Frontend/Dockerfile -t pingo-frontend .
 All three listen on port 8080 and run as a non-root user. The images contain no passwords or keys:
 the APIs get connection strings and the JWT key from environment variables, e.g.
 `ConnectionStrings__Messages` and `Jwt__SigningKey`.
+
+## Multi-region lab
+
+[lab/README.md](lab/README.md) runs Pingo from these images behind one reverse proxy.

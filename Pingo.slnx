@@ -14,6 +14,11 @@
     <Project Path="Frontend/Pingo.Frontend.Tests/Pingo.Frontend.Tests.csproj" />
     <Project Path="Frontend/Pingo.Frontend/Pingo.Frontend.csproj" />
   </Folder>
+  <Folder Name="/lab/">
+    <File Path="lab/docker-compose.yml" />
+    <File Path="lab/README.md" />
+    <Project Path="lab/Pingo.Edge/Pingo.Edge.csproj" />
+  </Folder>
   <Folder Name="/Services/" />
   <Folder Name="/Services/Identity/">
     <Project Path="Services/Identity/Pingo.Identity.Api/Pingo.Identity.Api.csproj" />

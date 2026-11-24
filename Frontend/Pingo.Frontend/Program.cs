@@ -13,7 +13,9 @@ var messageApiUrl = builder.Configuration["MessageApi:BaseUrl"]
 var identityApiUrl = builder.Configuration["IdentityApi:BaseUrl"]
     ?? throw new InvalidOperationException("IdentityApi:BaseUrl is not configured.");
 
-builder.Services.AddPingoApiClients(new Uri(messageApiUrl), new Uri(identityApiUrl));
+// A relative address like "/" means the APIs are on the same origin as the app, behind a reverse proxy.
+var appAddress = new Uri(builder.HostEnvironment.BaseAddress);
+builder.Services.AddPingoApiClients(new Uri(appAddress, messageApiUrl), new Uri(appAddress, identityApiUrl));
 builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();
 
