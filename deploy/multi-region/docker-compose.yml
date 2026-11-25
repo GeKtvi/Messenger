@@ -1,0 +1,268 @@
+# Multi-region lab, separate from the development docker-compose.yml: its own containers, network and
+# data. See README.md. Credentials here are for this lab only.
+name: pingo-lab
+
+# Looking up a stopped container's name otherwise takes about 8 seconds to fail.
+x-dns: &fast-dns ["timeout:1", "attempts:1"]
+
+x-edge: &edge
+  image: pingo-edge
+  build:
+    context: ../..
+    dockerfile: Edge/Pingo.Edge/Dockerfile
+  dns_opt: *fast-dns
+
+x-identity: &identity
+  image: pingo-identity
+  dns_opt: *fast-dns
+  build:
+    context: ../..
+    dockerfile: Services/Identity/Pingo.Identity.Api/Dockerfile
+  depends_on: &api-depends-on
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    rabbitmq: { condition: service_healthy }
+    wan-setup: { condition: service_completed_successfully }
+
+x-messages: &messages
+  image: pingo-messages
+  dns_opt: *fast-dns
+  build:
+    context: ../..
+    dockerfile: Services/Message/Pingo.Messages.Api/Dockerfile
+  depends_on: *api-depends-on
+
+x-postgres: &postgres
+  image: postgres:17
+  user: postgres
+  command: ["sh", "/etc/pingo/node.sh"]
+  dns_opt: *fast-dns
+  healthcheck:
+    # Over TCP: while the image sets up the database, it listens only on a Unix socket.
+    test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U messenger -d messenger_messages"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+x-api-environment: &api-environment
+  Jwt__SigningKey: pingo-lab-signing-key-never-use-in-production
+  OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+
+services:
+  # ---- EU: next to the database --------------------------------------------------------------------
+  edge-eu:
+    <<: *edge
+    environment:
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
+      Edge__RegionOrder: ${REGION_ORDER:-eu,us,asia}
+      ReverseProxy__Clusters__identity__Destinations__eu__Address: http://identity-eu:8080
+      ReverseProxy__Clusters__identity__Destinations__us__Address: http://wan-eu:8201
+      ReverseProxy__Clusters__identity__Destinations__asia__Address: http://wan-eu:8301
+      ReverseProxy__Clusters__messages__Destinations__eu__Address: http://messages-eu:8080
+      ReverseProxy__Clusters__messages__Destinations__us__Address: http://wan-eu:8202
+      ReverseProxy__Clusters__messages__Destinations__asia__Address: http://wan-eu:8302
+    ports:
+      - "8001:8080"
+
+  identity-eu:
+    <<: *identity
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
+      # The first host is the primary unless a replica was promoted; Npgsql finds out which one is.
+      # GSS Encryption Mode: there is no Kerberos here, and by default Npgsql logs that its library is missing.
+      ConnectionStrings__Identity: "Host=postgres,postgres-eu;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=primary;Timeout=3;Host Recheck Seconds=2"
+      ConnectionStrings__Redis: redis:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+
+  messages-eu:
+    <<: *messages
+    depends_on:
+      <<: *api-depends-on
+      postgres-eu: { condition: service_healthy }
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
+      ConnectionStrings__Messages: "Host=postgres,postgres-eu;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=primary;Timeout=3;Host Recheck Seconds=2"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+      # The replica while it runs, otherwise the primary.
+      ConnectionStrings__MessagesRead: "Host=postgres-eu,postgres;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=prefer-standby;Timeout=3;Host Recheck Seconds=2"
+
+  postgres-eu:
+    <<: *postgres
+    environment:
+      FIRST_START: replica
+      PRIMARIES: host=postgres,postgres-eu port=5432,5432
+    depends_on:
+      wan-setup: { condition: service_completed_successfully }
+    volumes:
+      - postgres-eu-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
+
+  # ---- US ------------------------------------------------------------------------------------------
+  edge-us:
+    <<: *edge
+    environment:
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
+      Edge__RegionOrder: ${REGION_ORDER:-us,eu,asia}
+      ReverseProxy__Clusters__identity__Destinations__eu__Address: http://wan-us:8101
+      ReverseProxy__Clusters__identity__Destinations__us__Address: http://identity-us:8080
+      ReverseProxy__Clusters__identity__Destinations__asia__Address: http://wan-us:8301
+      ReverseProxy__Clusters__messages__Destinations__eu__Address: http://wan-us:8102
+      ReverseProxy__Clusters__messages__Destinations__us__Address: http://messages-us:8080
+      ReverseProxy__Clusters__messages__Destinations__asia__Address: http://wan-us:8302
+    ports:
+      - "8002:8080"
+
+  identity-us:
+    <<: *identity
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
+      ConnectionStrings__Identity: "Host=wan-us:5432,wan-us:5433;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=primary;Timeout=3;Host Recheck Seconds=2"
+      ConnectionStrings__Redis: wan-us:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-us:5672/
+
+  messages-us:
+    <<: *messages
+    depends_on:
+      <<: *api-depends-on
+      postgres-us: { condition: service_healthy }
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
+      ConnectionStrings__Messages: "Host=wan-us:5432,wan-us:5433;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=primary;Timeout=3;Host Recheck Seconds=2"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-us:5672/
+      # The replica while it runs, otherwise the primary.
+      ConnectionStrings__MessagesRead: "Host=postgres-us,wan-us:5432,wan-us:5433;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=prefer-standby;Timeout=3;Host Recheck Seconds=2"
+
+  postgres-us:
+    <<: *postgres
+    environment:
+      FIRST_START: replica
+      PRIMARIES: host=wan-us,wan-us port=5432,5433
+    depends_on:
+      wan-setup: { condition: service_completed_successfully }
+    volumes:
+      - postgres-us-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
+
+  # ---- Asia ----------------------------------------------------------------------------------------
+  edge-asia:
+    <<: *edge
+    environment:
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
+      Edge__RegionOrder: ${REGION_ORDER:-asia,us,eu}
+      ReverseProxy__Clusters__identity__Destinations__eu__Address: http://wan-asia:8101
+      ReverseProxy__Clusters__identity__Destinations__us__Address: http://wan-asia:8201
+      ReverseProxy__Clusters__identity__Destinations__asia__Address: http://identity-asia:8080
+      ReverseProxy__Clusters__messages__Destinations__eu__Address: http://wan-asia:8102
+      ReverseProxy__Clusters__messages__Destinations__us__Address: http://wan-asia:8202
+      ReverseProxy__Clusters__messages__Destinations__asia__Address: http://messages-asia:8080
+    ports:
+      - "8003:8080"
+
+  identity-asia:
+    <<: *identity
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
+      ConnectionStrings__Identity: "Host=wan-asia:5432,wan-asia:5433;Database=pingo_identity;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=primary;Timeout=3;Host Recheck Seconds=2"
+      ConnectionStrings__Redis: wan-asia:6379
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-asia:5672/
+
+  messages-asia:
+    <<: *messages
+    depends_on:
+      <<: *api-depends-on
+      postgres-asia: { condition: service_healthy }
+    environment:
+      <<: *api-environment
+      OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
+      ConnectionStrings__Messages: "Host=wan-asia:5432,wan-asia:5433;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=primary;Timeout=3;Host Recheck Seconds=2"
+      ConnectionStrings__RabbitMq: amqp://guest:guest@wan-asia:5672/
+      # The replica while it runs, otherwise the primary.
+      ConnectionStrings__MessagesRead: "Host=postgres-asia,wan-asia:5432,wan-asia:5433;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=prefer-standby;Timeout=3;Host Recheck Seconds=2"
+
+  postgres-asia:
+    <<: *postgres
+    environment:
+      FIRST_START: replica
+      PRIMARIES: host=wan-asia,wan-asia port=5432,5433
+    depends_on:
+      wan-setup: { condition: service_completed_successfully }
+    volumes:
+      - postgres-asia-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
+
+  # ---- The distance between the regions ------------------------------------------------------------
+  wan-eu: &wan
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    dns_opt: *fast-dns
+
+  wan-us: *wan
+
+  wan-asia: *wan
+
+  # Sets the delays and exits.
+  wan-setup:
+    image: curlimages/curl:8.16.0
+    command: ["sh", "/wan-setup.sh"]
+    volumes:
+      - ./wan-setup.sh:/wan-setup.sh:ro
+    depends_on: [wan-eu, wan-us, wan-asia]
+
+  # ---- Shared --------------------------------------------------------------------------------------
+  # The same static files for every region, without a delay: a real edge would have them cached.
+  frontend:
+    image: pingo-frontend
+    build:
+      context: ../..
+      dockerfile: Frontend/Pingo.Frontend/Dockerfile
+    volumes:
+      # API addresses relative to the page, so the app calls whichever edge it was loaded from.
+      - ./frontend-appsettings.json:/usr/share/nginx/html/appsettings.json:ro
+
+  # The primary, unless a replica was promoted.
+  postgres:
+    <<: *postgres
+    environment:
+      FIRST_START: primary
+      PRIMARIES: host=postgres,postgres-eu port=5432,5432
+      POSTGRES_DB: messenger_messages
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: messenger
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
+
+  redis:
+    image: redis:8
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # UI on another port than the development Jaeger, so both can run.
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    ports:
+      - "16687:16686"
+
+volumes:
+  postgres-data:
+  postgres-eu-data:
+  postgres-us-data:
+  postgres-asia-data:

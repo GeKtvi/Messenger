@@ -1353,3 +1353,307 @@ returns `Result<AuthTokens, LoginError>` instead of throwing (D-049).
 publish, publishing first, swapping the errors, publishing the raw email and not catching publish
 failures each made the matching test fail. The component tests keep covering the same flow end to
 end with the real hasher and PostgreSQL.
+
+## D-062: `/health` on both APIs reports only that the instance is alive
+
+- **Date:** 2026-11-24
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The multi-region lab puts a reverse proxy in front of several copies of each API. The
+proxy needs to know which copies can take requests. All copies share one PostgreSQL and one RabbitMQ.
+
+**Decision:**
+
+- `GET /health`, anonymous, on both APIs, through ASP.NET Core health checks set up once in
+  `Pingo.ServiceDefaults` (`AddPingoHealth`, `MapPingoHealth`).
+- It runs no dependency checks, and leaves out the bus check MassTransit registers by itself. With a
+  shared database, a dependency check would fail in every region at once, leaving nowhere to route.
+- Requests to `/health` aren't traced: probes every few seconds would bury real traces in Jaeger.
+
+**Consequences:** An instance that runs but can't reach PostgreSQL still counts as healthy, and so
+does Identity while its migrations are running (requests wait for them, D-035). A separate readiness
+endpoint can be added if an orchestrator needs it. Component tests cover it; running all checks and
+removing the trace filter each made the matching test fail.
+
+## D-063: Hand-written multi-stage Dockerfiles, one per deployable project
+
+- **Date:** 2026-11-24
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The lab, and later Azure Container Apps, need images of the APIs and the frontend. The
+.NET SDK can build API images without a Dockerfile (`dotnet publish /t:PublishContainer`), but not
+one that serves the frontend's static files from nginx.
+
+**Decision:**
+
+- One `Dockerfile` next to each project, built from the repository root because of `Shared/`. Project
+  files are copied and restored before the source, so a code change doesn't restore packages again.
+- APIs run on `aspnet:10.0`. It includes ICU, which the Russian error messages need; the alpine image
+  doesn't by default.
+- The frontend runs on `nginxinc/nginx-unprivileged:1.30-alpine` and sends the `.gz` files publishing
+  already made. Content-hashed `_framework` files are cached for a year, everything else is revalidated.
+- All three run as a non-root user on port 8080.
+- `.dockerignore` keeps `appsettings.Development.json` out of the images, so they contain no
+  credentials or signing key. Containers get those from environment variables.
+
+**Consequences:** An image doesn't start without its settings. A project reference added to an API
+also needs its `COPY` line in the Dockerfile. The frontend image still has the API addresses of
+local development; pointing it elsewhere means mounting another `appsettings.json`.
+
+## D-064: The lab's edge is a YARP proxy that serves the frontend and APIs on one origin
+
+- **Date:** 2026-11-24
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The multi-region lab needs a local stand-in for a global load balancer such as Azure
+Front Door: one address that routes by path and, later, picks a region and fails over.
+
+**Decision:**
+
+- `lab/Pingo.Edge`: an ASP.NET Core app with `Yarp.ReverseProxy` 2.3.0 (Microsoft, MIT), configured in
+  `appsettings.json`. `/api/auth/*` goes to Identity, `/api/messages/*` to the Message service, and
+  everything else to the frontend's nginx. YARP over nginx because it has active health checks built
+  in, stays in C#, and takes part in our traces through `Pingo.ServiceDefaults`.
+- `lab/docker-compose.yml` is a separate Compose project (`pingo-lab`) with its own data, so the
+  development setup is untouched. Only the edge (8001) and Jaeger (16687) have host ports.
+- The frontend's `BaseUrl` settings may be relative: `/` means the origin the app was loaded from. The
+  lab mounts such an `appsettings.json` into the frontend container; absolute addresses work as before.
+
+**Consequences:** With one origin there's no CORS preflight, and the `SameSite=Strict` cookie works
+unchanged. The same routing carries over to Front Door. The edge is configuration only, so it has no
+tests; it was checked end to end in the browser and in Jaeger. Cookies ignore ports, so the lab and a
+locally run Pingo share the refresh cookie on `localhost`.
+
+## D-065: Three lab regions: Toxiproxy for distance, an ordered region list per edge
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The lab needs three regions that share one database, with realistic delays between them,
+and a way to compare nearest-region routing with sending everyone to the region next to the database.
+
+**Decision:**
+
+- EU, US and Asia each get an edge (ports 8001 to 8003), an Identity and a Message API. PostgreSQL,
+  Redis and RabbitMQ exist once and count as being in the EU.
+- Delays come from Toxiproxy 2.12.0 (MIT), one container per source region, configured by a one-shot
+  `wan-setup` container. The delay is on both kinds of link, edge to another region and API to the
+  EU's storage; with only one of them, the two routing strategies couldn't be compared fairly.
+- `RegionOrderPolicy`, a YARP load balancing policy, picks the first available region from
+  `Edge:RegionOrder`. One setting covers both strategies: nearest first, or the EU first everywhere.
+- Responses carry `X-Pingo-Region`, and spans a `cloud.region` tag (`OTEL_RESOURCE_ATTRIBUTES`).
+- `*.sh` files always have LF line endings (`.gitattributes`), since they run in Linux containers.
+
+**Consequences:** `lab/measure.py` shows that with one database the nearest region is never faster: from
+Asia, sending a message takes about 420 ms through the nearest API and 210 ms through the EU. There is
+no failover yet: a stopped region still gets its traffic until health checks are added.
+
+## D-066: The lab's folder becomes `Edge/` for the code and `deploy/multi-region/` for the setup
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The folder `lab/` (D-064, D-065) said nothing about its contents and mixed a project's
+source code with container configuration and scripts.
+
+**Decision:** `Pingo.Edge` moves to `Edge/`, a top-level folder like `Services/` and `Frontend/`. The
+Compose file, its settings and scripts move to `deploy/multi-region/`, so other ways to deploy (such as
+Azure) can get their own folder next to it. The Compose project keeps the name `pingo-lab`, so existing
+containers and data stay in use.
+
+**Consequences:** Paths starting with `lab/` in D-064 and D-065 are historical.
+
+## D-067: Failover through active health checks in the edge
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** The edges kept sending requests to a stopped region (D-065).
+
+**Decision:**
+
+- YARP active health checks on `/health` (D-062) for both API clusters: every second, 2 s timeout, and
+  two failures in a row make a destination unhealthy. One success brings it back. Two failures rather
+  than one, so a single lost probe doesn't move all traffic.
+- `RegionOrderPolicy` doesn't change: YARP already passes it only the available regions.
+- Keep YARP's default, `HealthyOrPanic`: when every region is unhealthy, requests are still tried in
+  order, since broken checks are more likely than three dead regions.
+- Connecting is limited to 2 s and a whole request to 10 s without activity, so a dead or frozen API
+  fails instead of hanging. The edge doesn't retry: the frontend already does, and only for calls
+  that are safe to repeat (D-058).
+- In the lab, the edges give up DNS lookups after a second (`dns_opt`). Docker takes about 8 s to
+  fail on the name of a stopped container, and the connect timeout doesn't interrupt the lookup.
+- `Pingo.Edge.Tests` runs the real edge with its real configuration in front of fake APIs that can be
+  stopped and started.
+
+**Consequences:** In the lab, killing an API caused errors for 4 to 5.5 s. A message sent from the
+browser in that gap got two `502`s and then a `201` from the frontend's retries, with the same id. A
+dead PostgreSQL still fails every region. Turning the checks off, or reversing the region order, made
+most of the failover tests fail.
+
+## D-068: Message lists always from read replicas, writes always to the primary
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** In the lab, the US and Asia make a long trip to the EU's PostgreSQL for every query (D-065),
+and the primary serves every region's reads.
+
+**Decision:**
+
+- PostgreSQL streaming replication, asynchronous, with one replica per region, the EU included so that
+  every Message API works the same way. Each copies the primary with `pg_basebackup` on first start
+  and then follows it, logging in as the lab's own superuser.
+- `GetAllAsync` reads through `ReadOnlyMessageDbContext` on `ConnectionStrings:MessagesRead`; without
+  that setting it uses the primary. It and `MessageDbContext` are siblings under the abstract
+  `MessageDbContextBase`, which holds only the table mapping. So the read side inherits nothing to write
+  with: it exposes an untracked `IQueryable` instead of a `DbSet`, and saving throws.
+- `SendAsync` uses only the primary, including its lookup, and so does all of Identity: login and
+  single-use refresh tokens can't work on old data.
+- Npgsql gets both hosts with `Target Session Attributes=prefer-standby`, so reads use the primary
+  while the replica is down.
+- No exceptions for users who have just written: an earlier version sent their reads to the primary
+  for 5 s, marked by a cookie, and was dropped because it leaked the storage design to the browser.
+  Replica lag is handled in the frontend instead (D-069).
+
+**Consequences:** Listing from Asia takes 5 to 20 ms instead of 210 ms; sending is unchanged. With the
+primary down, every region can still list messages. Lists may be a little old. `dotnet ef` now
+needs `--context MessageDbContext`.
+Tests use a second in-memory database as a replica that never catches up; replication itself was
+checked in the lab.
+
+## D-069: The frontend keeps its own sent messages until a loaded list contains them
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** Lists come from a replica that may lag (D-068), so reloading right after a send could make
+the user's own message disappear for a moment. The outbox (D-025) dropped a message as soon as the server
+confirmed it.
+
+**Decision:** The outbox keeps a confirmed message, with the server's copy, in `localStorage` until a
+loaded list contains its id. The chat shows the loaded list plus these messages, in order and without
+duplicates; the list's copy wins. They're never resent.
+Logging out clears them, and a send still under way at logout isn't kept. There's no time limit: it would
+have to compare the server's clock with the browser's, and since messages can't be deleted and lists
+aren't paged, a confirmed message eventually appears in a list.
+
+After each confirmed send, the list is loaded again. `MessageFeed` holds what the open chat shows:
+
+- A new list is merged into it by id and never removes a message, because the next answer may come from
+  a replica that is further behind. Of two copies, the one edited later wins.
+- One load runs at a time; sends that finish meanwhile cause exactly one more. A failed load keeps what
+  is shown.
+- Closing the chat page, which logging out does, clears it, and answers to older requests are ignored.
+
+**Consequences:** The server's API says nothing about replicas. It covers only this browser: another
+device, other people's messages and the login greeting still appear when the replica has them.
+Deleting messages or paging the list would need a new rule for forgetting copies. A message lost by
+promoting a replica that never received it would stay on its author's screen. After a page
+reload, a list from a replica that is further behind than the one before can hide a message for a moment.
+Every send now costs a second request that returns all messages (D-010), though from the replica. Other
+people's messages still appear only after sending or reloading; that needs a push channel (SignalR).
+
+## D-070: Promote a replica by hand; clients and replicas find the primary themselves
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** With the primary gone, the lab could still list messages (D-068) but not send them or log in.
+
+**Decision:**
+
+- The operator promotes a replica with `pg_promote()`; nothing promotes one automatically.
+- Nothing needs reconfiguring afterwards. Connection strings list both servers that may be the primary
+  (`postgres` and `postgres-eu`) with `Target Session Attributes=primary` and `Host Recheck Seconds=2`.
+  Replicas get both in `primary_conninfo` with `target_session_attrs=primary` and follow the new
+  timeline by themselves.
+- One start script, `postgres/node.sh`, for all four servers. The data decides the role, so a promoted
+  replica stays the primary after a restart.
+- Fencing: before promoting, the operator marks the old primary's data (`pingo.fenced`). When it starts
+  again, it rewinds with `pg_rewind` (`wal_log_hints=on` everywhere) and follows the new primary. As a
+  second check, a server that would start as a primary follows instead when another primary answers.
+
+**Consequences:** In the lab, every region could send again 3 to 6 s after the promotion. Replication
+stays asynchronous, so a confirmed message that no replica had yet is lost, which the lab demonstrates.
+Fencing depends on the operator; the automatic check can't see a primary that is down. A split brain did
+happen once while building this, through a mistyped fence command, and repairing it deleted the messages
+written to the old primary. Automatic promotion with a consensus (Patroni, or a managed PostgreSQL)
+would avoid both, at the cost of another moving part. Getting the rewind to work after a crash needed two
+fixes in `node.sh`: removing the killed server's stale lock file, and running its crash recovery with
+`wal_log_hints=on`.
+
+## D-071: Repeat a database call once when PostgreSQL ended the connection
+
+- **Date:** 2026-11-26
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** After PostgreSQL restarts, the idle connections in each service's pool are dead, but a service
+only finds out by using one. In the lab, the first login, send or list after every restart answered `500`.
+With several hosts listed (D-070), the failure also marked the server as down for `Host Recheck Seconds`,
+so an immediate retry found no server at all.
+
+**Decision:**
+
+- Message service: EF Core's `NpgsqlRetryingExecutionStrategy`, at most 3 retries and 1 s apart, in a
+  small subclass (`RetryingExecutionStrategy`). Safe because every write is idempotent (D-023) and there
+  are no explicit transactions. The service now builds its own `NpgsqlDataSource`s instead of passing
+  connection strings, so the strategy can reach them.
+- Identity: `IdentityDatabase.RunAsync` runs each repository call and, on a transient `NpgsqlException`,
+  runs it once more on a new connection. Npgsql empties the pool when it meets a dead connection, so one
+  retry is enough.
+- Before retrying, both call `NpgsqlMultiHostDataSource.ClearDatabaseStates()`, so the server that just
+  failed is tried again. Setting `Host Recheck Seconds=0` instead also worked, but doubled every request's
+  time from the US and Asia, because each pooled connection was checked again.
+
+**Consequences:** Restarting the primary or a replica no longer fails any request in the lab. A dead
+connection fails on its first command, before anything is stored. If the server instead crashed after
+committing but before answering, the retry runs the statement again: a registration would then say the
+email is taken, and a refresh would end the session. Component tests end the app's connections with
+`pg_terminate_backend`. The multi-host test fails without `ClearDatabaseStates` for the Message service,
+but not for Identity, where only the lab showed the problem.
+
+## D-072: Live messages with SignalR, fanned out to every instance over RabbitMQ
+
+- **Date:** 2026-11-26
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** Other people's messages appeared only after sending something or reloading (D-069). With a
+Message API in every region, a browser is connected to one instance, but messages are saved by any.
+
+**Decision:**
+
+- A SignalR hub, `MessagesHub`, at `/api/messages/hub`, so the edge's existing route reaches it. It
+  requires the access token and only pushes: clients still send with `PUT`.
+- The business layer reports each created or edited message (not an unchanged repeat) to an
+  `IMessageNotifier`. The API's implementation publishes `MessageSaved` over RabbitMQ (MassTransit,
+  D-059) in the background, so a send doesn't wait for the broker in the EU; if publishing fails, open
+  chats miss the message until they next load the list.
+- Each instance consumes `MessageSaved` on a temporary queue of its own, deleted when it stops, and pushes
+  the message to its own connections. A shared queue, like `user-logged-in`'s, would give each event to
+  only one instance. This uses RabbitMQ, which the service already has, rather than SignalR's Redis
+  backplane; on Azure, Azure SignalR Service would replace both.
+- The browser connects with WebSockets only and skips the negotiate request, so no sticky sessions are
+  needed behind the edge. A browser can't set headers on a WebSocket, so the token goes in the
+  `access_token` query parameter, accepted only for the hub. The hub pings every 5 s, under the edge's
+  10 s idle limit (D-067).
+- Frontend: `LiveMessages` (behind `ILiveMessages`) keeps the connection while the chat is open, with
+  SignalR's automatic reconnect, and starts over with a fresh access token when that gives up.
+  `MessageFeed` merges pushed messages like loaded ones, keeps those arriving before the first load, and
+  loads the list again after a reconnect to catch up.
+
+**Consequences:** In the lab, a message sent in the US or through the EU appeared in a chat open in Asia
+without any request from it, also after Asia's Message API was killed and the chat reconnected to the US.
+Every instance gets every message, which is fine for one public chat; separate chats would need SignalR
+groups. A connection isn't closed when its token expires; the token is checked only when it connects.

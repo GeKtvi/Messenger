@@ -35,6 +35,34 @@ To finish a stage:
 
 To view a stage's code: `git checkout 01` (or browse the tag on GitHub).
 
+## Additional work (not part of the homework)
+
+> **For the homework reviewer:** everything in this section was done on top of the required stages, on
+> the `lab/multi-region` branch, and merged after stage `06`. It isn't a homework stage and has no tag.
+> To review only the homework, check out tag `06`. Decision-log entries D-062 to D-072 belong to it; they
+> say "Multi-region lab (not a homework stage)".
+
+A lab that runs Pingo in three pretend regions (EU, US, Asia) with Docker Compose, to practise what a
+real multi-region deployment needs. Details and experiments: [deploy/multi-region/README.md](deploy/multi-region/README.md).
+
+New parts:
+
+- Dockerfiles for both APIs and the frontend, and `/health` on both APIs (D-062, D-063).
+- `Edge/Pingo.Edge`: a YARP reverse proxy standing in for a global load balancer, with region choice and
+  failover by health checks (D-064, D-065, D-067), and its tests in `Edge/Pingo.Edge.Tests`.
+- `deploy/multi-region`: the Compose setup, Toxiproxy delays between regions, PostgreSQL read replicas
+  and manual promotion of a replica (D-065, D-068, D-070).
+
+Changes to the homework code that came with it:
+
+- Message service: lists come from a read replica through a read-only `DbContext`, writes go to the
+  primary (D-068); failed database calls are repeated once after a PostgreSQL restart (D-071); new and
+  edited messages are pushed to open chats over SignalR (D-072).
+- Identity: the same retry after a PostgreSQL restart (D-071).
+- Frontend: the outbox keeps sent messages until a list contains them, the list is loaded again after
+  sending, and messages arrive live (D-069, D-072); a send that times out on every attempt now shows
+  **Retry** instead of staying on "Sending…".
+
 ## Structure
 
 ```
@@ -51,7 +79,12 @@ Pingo.slnx
 │       └── Pingo.Identity.UnitTests        # Unit tests: login logic with Moq, no database
 ├── Shared/
 │   ├── Pingo.Contracts                     # Events exchanged over RabbitMQ (UserLoggedIn)
-│   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing
+│   └── Pingo.ServiceDefaults               # Setup shared by the services: OpenTelemetry tracing, /health
+├── Edge/
+│   ├── Pingo.Edge                          # YARP reverse proxy in front of the frontend and APIs
+│   └── Pingo.Edge.Tests                    # Region choice and failover against fake APIs
+├── deploy/
+│   └── multi-region                        # Docker Compose lab: three regions with artificial delays
 └── Frontend/
     ├── Pingo.Frontend              # Blazor WebAssembly + MudBlazor
     └── Pingo.Frontend.Tests        # Unit tests: token handling against fake APIs
@@ -75,11 +108,23 @@ The service also listens to RabbitMQ: when Identity publishes `UserLoggedIn`, it
 "Привет, user@example.com!" to the chat. The event's id becomes the message id, so a redelivered
 event doesn't greet twice.
 
+**Live messages.** Open chats get every created or edited message pushed over SignalR, at
+`/api/messages/hub` (WebSockets only, the access token in the `access_token` query parameter). The
+service publishes `MessageSaved` over RabbitMQ, and every instance receives it on a queue of its own
+and passes it to the chats connected to it, so a message sent in one region reaches chats open in
+another (D-072).
+
+If PostgreSQL restarted, the first query over a pooled connection fails; it's repeated on a new one
+(D-071). The same goes for Identity.
+
 Sending is idempotent. The client picks the message id (a `Guid`):
 
 - **New id:** creates the message, returns `201 Created`.
 - **Existing id, new text:** updates the text and `updatedAt`, returns `200 OK`.
 - **Existing id, same text:** changes nothing, returns `200 OK`. Retrying a request is always safe.
+
+Lists can come from a read replica (`ConnectionStrings:MessagesRead`; without it, everything uses the
+primary). Sending always uses the primary (D-068).
 
 Messages are stored in PostgreSQL. The schema is managed with EF Core migrations, which the API
 applies automatically on startup. Example requests are in `Pingo.Messages.Api.http`.
@@ -93,7 +138,7 @@ dotnet tool restore
 ```
 
 ```bash
-dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --output-dir Data/Migrations
+dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --context MessageDbContext --output-dir Data/Migrations
 ```
 
 ## Identity service
@@ -152,6 +197,11 @@ context travels in the `traceparent` HTTP header and in RabbitMQ message headers
 Open http://localhost:16686, pick the service `pingo-identity` and the operation
 `POST api/auth/login`, then *Find Traces*.
 
+## Health check
+
+Both APIs answer `GET /health` with `200 Healthy`, without a token. It says only that the instance is
+running, not that PostgreSQL or RabbitMQ is reachable (D-062), and it isn't traced.
+
 ## Frontend: signing in
 
 - Opening the app shows a login form, which can also create an account. Identity's error messages
@@ -185,6 +235,13 @@ The UI sends messages the way most messengers do:
 - Pending messages are kept in the browser's `localStorage` (`pingo.outbox`), so they survive a
   reload and are resent automatically when the page opens. Each one keeps its client-generated id,
   so resending never creates a duplicate.
+- Once confirmed, a message is kept there with the server's copy until a loaded list contains it,
+  because a list from a read replica may lag behind (D-069). Such a message is
+  never resent.
+
+After each sent message the list is loaded again, which also shows other people's new messages. A new
+list is merged into what's shown and never removes anything. Messages anyone else sends arrive at once
+over SignalR; after a lost connection, the list is loaded again to catch up (D-072).
 
 ## Tests
 
@@ -207,6 +264,10 @@ dotnet test Pingo.slnx
 | `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins, preflights without a token, CORS headers on a 401 |
 | `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
 | `MessagesTracingTests` | Real PostgreSQL in Docker, MassTransit test harness | The consumer continues the publisher's trace, with the greeting's `INSERT` under its span |
+| `MessagesReplicaTests` | EF Core in-memory, a second database as a lagging replica | Lists read the replica, sends look ids up on the primary, the read-only context refuses to save |
+| `MessagesLiveTests` | EF Core in-memory, MassTransit test harness, SignalR client | Sends, edits and greetings pushed, repeats not; the hub needs a token; the query-string token works on the hub's WebSocket and nowhere else |
+| `MessagesDatabaseRestartTests` | Real PostgreSQL in Docker | Listing and sending right after the server ended every connection, with one host and with two listed |
+| `MessagesHealthTests` | EF Core in-memory | `/health` without a token, with a failing dependency, and not traced |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
 | `MessagesPostgresStorageTests` | Real PostgreSQL in Docker (Testcontainers) | Time precision round-trip, text column limit |
@@ -234,6 +295,8 @@ dotnet test Pingo.slnx
 | `TracingTests` | A login is one trace: the HTTP span contains the PostgreSQL spans and the `UserLoggedIn` publish; a failed login publishes nothing |
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
+| `DatabaseRestartTests` | Login, refresh and registration right after the server ended every connection, also with two hosts listed |
+| `HealthTests` | `/health` answers |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
 
 `Pingo.Identity.UnitTests` tests `AuthService.LoginAsync` alone, with Moq mocks for the
@@ -248,7 +311,13 @@ with no browser or Docker:
 | Test class | Covers |
 |---|---|
 | `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
-| `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token |
+| `MessageFeedTests` | Loading again after a send, merging lists without losing messages or edits, failed and overlapping loads, starting fresh after logout, pushed messages and edits, reloading after a reconnect |
+| `MessageOutboxTests` | Sent messages shown until a list contains them, also after a reload; merging without duplicates, no resending of delivered ones, logout, retries |
+| `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token, a send whose every attempt times out marked as not sent |
+
+`Pingo.Edge.Tests` runs the real edge in front of fake APIs on local ports, with no Docker
+(`FailoverTests`): region order, failing over when an API stops or reports unhealthy, returning when
+it's back, each service on its own, and every region being down.
 
 The PostgreSQL test classes need Docker running. The concurrency tests force a real race: an EF Core interceptor holds
 every insert until all requests have reached it, then releases them together. To skip all Docker tests:
@@ -290,3 +359,28 @@ Then open http://localhost:5221.
 - Jaeger UI: http://localhost:16686: traces from both services
 - The frontend reads both API addresses from `Frontend/Pingo.Frontend/wwwroot/appsettings.json`.
 - Allowed CORS origins are configured in the API's `appsettings.json`.
+
+## Docker images
+
+Each API and the frontend has a `Dockerfile`. Build them from the repository root:
+
+```bash
+docker build -f Services/Identity/Pingo.Identity.Api/Dockerfile -t pingo-identity .
+```
+
+```bash
+docker build -f Services/Message/Pingo.Messages.Api/Dockerfile -t pingo-messages .
+```
+
+```bash
+docker build -f Frontend/Pingo.Frontend/Dockerfile -t pingo-frontend .
+```
+
+All three listen on port 8080 and run as a non-root user. The images contain no passwords or keys:
+the APIs get connection strings and the JWT key from environment variables, e.g.
+`ConnectionStrings__Messages` and `Jwt__SigningKey`.
+
+## Multi-region lab
+
+Additional work, not part of the homework (see above). [deploy/multi-region/README.md](deploy/multi-region/README.md)
+runs Pingo from these images in three pretend regions, with artificial delays between them.

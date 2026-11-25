@@ -96,6 +96,8 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>, IAsyncL
         });
     }
 
+    public string ConnectionString => _postgres.GetConnectionString();
+
     // A direct connection to the test database, for checking what the app stored.
     public async Task<NpgsqlConnection> OpenConnectionAsync()
     {

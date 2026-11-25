@@ -14,6 +14,18 @@
     <Project Path="Frontend/Pingo.Frontend.Tests/Pingo.Frontend.Tests.csproj" />
     <Project Path="Frontend/Pingo.Frontend/Pingo.Frontend.csproj" />
   </Folder>
+  <Folder Name="/deploy/" />
+  <Folder Name="/deploy/multi-region/">
+    <File Path="deploy/multi-region/docker-compose.yml" />
+    <File Path="deploy/multi-region/measure.py" />
+    <File Path="deploy/multi-region/README.md" />
+    <File Path="deploy/multi-region/postgres/node.sh" />
+    <File Path="deploy/multi-region/wan-setup.sh" />
+  </Folder>
+  <Folder Name="/Edge/">
+    <Project Path="Edge/Pingo.Edge.Tests/Pingo.Edge.Tests.csproj" />
+    <Project Path="Edge/Pingo.Edge/Pingo.Edge.csproj" />
+  </Folder>
   <Folder Name="/Services/" />
   <Folder Name="/Services/Identity/">
     <Project Path="Services/Identity/Pingo.Identity.Api/Pingo.Identity.Api.csproj" />

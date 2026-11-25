@@ -1,4 +1,5 @@
 using MassTransit;
+using Pingo.Messages.Api.Live;
 
 namespace Pingo.Messages.Api.Messaging;
 
@@ -19,6 +20,8 @@ public static class MessagingSetup
             // memory; after that the event goes to the "user-logged-in_error" queue instead of being lost.
             bus.AddConsumer<UserLoggedInConsumer>(consumer =>
                 consumer.UseMessageRetry(retry => retry.Intervals(200, 1000, 5000)));
+
+            bus.AddMessageSavedConsumer();
 
             bus.UsingRabbitMq((context, rabbit) =>
             {

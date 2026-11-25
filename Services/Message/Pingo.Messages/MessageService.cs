@@ -6,13 +6,13 @@ using MessageEntity = Pingo.Messages.Entities.Message;
 
 namespace Pingo.Messages;
 
-internal class MessageService(MessageDbContext db, TimeProvider time) : IMessageService
+internal class MessageService(
+    MessageDbContext db, ReadOnlyMessageDbContext readDb, IMessageNotifier notifier, TimeProvider time) : IMessageService
 {
     // Scaffold only: loads and returns every message with no paging or limit.
     // Fine for the first stage; replace with a paged/cursor-based query before real use.
     public async Task<IReadOnlyList<Message>> GetAllAsync(CancellationToken ct = default) =>
-        await db.Messages
-            .AsNoTracking()
+        await readDb.Messages
             .OrderBy(m => m.SentAt)
             .ThenBy(m => m.Id)
             .Select(m => new Message(m.Id, m.Text, m.SentAt, m.UpdatedAt))
@@ -26,6 +26,7 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
         text = text.Trim();
         ArgumentOutOfRangeException.ThrowIfGreaterThan(text.Length, MessageLimits.MaxTextLength, nameof(text));
 
+        // Not on the replica: it may lag behind and miss a message that exists.
         var message = await db.Messages.FindAsync([id], ct);
         if (message is null)
         {
@@ -34,7 +35,9 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
             try
             {
                 await db.SaveChangesAsync(ct);
-                return new SendMessageResult(ToModel(message), Created: true);
+                var created = ToModel(message);
+                await notifier.MessageSavedAsync(created, ct);
+                return new SendMessageResult(created, Created: true);
             }
             catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
             {
@@ -51,6 +54,7 @@ internal class MessageService(MessageDbContext db, TimeProvider time) : IMessage
             message.Text = text;
             message.UpdatedAt = Now();
             await db.SaveChangesAsync(ct);
+            await notifier.MessageSavedAsync(ToModel(message), ct);
         }
 
         return new SendMessageResult(ToModel(message), Created: false);

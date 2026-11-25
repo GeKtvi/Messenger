@@ -9,6 +9,7 @@ const string FrontendCorsPolicy = "Frontend";
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddPingoTelemetry("pingo-identity");
+builder.AddPingoHealth();
 
 builder.Services.AddControllers();
 // TypedResults.Problem() writes through IProblemDetailsService when it's registered, which adds the
@@ -61,6 +62,7 @@ app.UseRequestLocalization(options => options
     .AddSupportedUICultures("en", "ru"));
 
 app.MapControllers();
+app.MapPingoHealth();
 
 app.Run();
 

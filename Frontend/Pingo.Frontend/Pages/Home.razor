@@ -1,6 +1,6 @@
 @page "/"
 @implements IDisposable
-@inject MessageApiClient MessageApi
+@inject MessageFeed Feed
 @inject MessageOutbox Outbox
 @inject ISnackbar Snackbar
 
@@ -27,11 +27,11 @@
     </form>
 </MudPaper>
 
-@if (_messages is null)
+@if (Feed.Messages is not IReadOnlyList<MessageDto> messages)
 {
     <MudProgressLinear Indeterminate Color="Color.Primary" />
 }
-else if (_messages.Count == 0 && !PendingToShow.Any())
+else if (messages.Count == 0 && !Feed.Pending.Any())
 {
     <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">
         No messages yet. Be the first!
@@ -40,7 +40,7 @@ else if (_messages.Count == 0 && !PendingToShow.Any())
 else
 {
     <MudList T="string" Dense>
-        @foreach (var message in _messages)
+        @foreach (var message in messages)
         {
             <MudListItem T="string" Icon="@Icons.Material.Filled.ChatBubbleOutline">
                 <MudText Typo="Typo.body1">@message.Text</MudText>
@@ -54,7 +54,7 @@ else
             </MudListItem>
         }
 
-        @foreach (var pending in PendingToShow)
+        @foreach (var pending in Feed.Pending)
         {
             var failed = pending.Status == PendingStatus.Failed;
             <MudListItem T="string"
@@ -82,34 +82,15 @@ else
 }
 
 @code {
-    private List<MessageDto>? _messages;
     private string _text = string.Empty;
-
-    // A pending message can briefly also be in the server list (e.g. delivered just before
-    // a reload); show it only once.
-    private IEnumerable<PendingMessage> PendingToShow =>
-        Outbox.Pending.Where(p => _messages?.Any(m => m.Id == p.Id) != true);
 
     protected override async Task OnInitializedAsync()
     {
-        Outbox.Changed += OnOutboxChanged;
-        Outbox.Delivered += OnDelivered;
+        Feed.Changed += OnFeedChanged;
 
-        await LoadAsync();
-        await Outbox.InitializeAsync();
-    }
-
-    private async Task LoadAsync()
-    {
-        try
-        {
-            _messages = [.. await MessageApi.GetAllAsync()];
-        }
-        catch (HttpRequestException ex)
-        {
-            _messages = [];
-            Snackbar.Add($"Could not load messages: {ex.Message}", Severity.Error);
-        }
+        await Feed.OpenAsync();
+        if (Feed.LoadError is { } error)
+            Snackbar.Add($"Could not load messages: {error}", Severity.Error);
     }
 
     private async Task SendAsync()
@@ -122,22 +103,12 @@ else
         await Outbox.SendAsync(text);
     }
 
-    private void OnOutboxChanged() => InvokeAsync(StateHasChanged);
+    private void OnFeedChanged() => InvokeAsync(StateHasChanged);
 
-    private void OnDelivered(MessageDto message)
-    {
-        if (_messages is null)
-            return;
-
-        _messages.RemoveAll(m => m.Id == message.Id);
-        _messages.Add(message);
-        _messages.Sort((a, b) => a.SentAt.CompareTo(b.SentAt));
-        InvokeAsync(StateHasChanged);
-    }
-
+    // Also when the user logs out or the session ends: the login form then takes this page's place.
     public void Dispose()
     {
-        Outbox.Changed -= OnOutboxChanged;
-        Outbox.Delivered -= OnDelivered;
+        Feed.Changed -= OnFeedChanged;
+        Feed.Close();
     }
 }

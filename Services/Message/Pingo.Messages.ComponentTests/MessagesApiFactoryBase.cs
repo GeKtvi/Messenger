@@ -29,6 +29,9 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
 
     protected abstract void ConfigureDatabase(DbContextOptionsBuilder options);
 
+    // The same database unless a test wants a separate read replica.
+    protected virtual void ConfigureReadDatabase(DbContextOptionsBuilder options) => ConfigureDatabase(options);
+
     // Gives each test an empty database, while the app itself keeps running.
     public abstract Task ResetDatabaseAsync();
 
@@ -50,6 +53,9 @@ public abstract class MessagesApiFactoryBase : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<MessageDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<MessageDbContext>>();
             services.AddDbContext<MessageDbContext>(ConfigureDatabase);
+            services.RemoveAll<DbContextOptions<ReadOnlyMessageDbContext>>();
+            services.RemoveAll<IDbContextOptionsConfiguration<ReadOnlyMessageDbContext>>();
+            services.AddDbContext<ReadOnlyMessageDbContext>(ConfigureReadDatabase);
 
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Time);
