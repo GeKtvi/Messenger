@@ -132,7 +132,60 @@ private window, as another user, and the message is missing until `pg_wal_replay
 | What stops | Result |
 |---|---|
 | `postgres-asia` | Asia's list comes from the primary again, after at most a failed request or two |
-| `postgres` (the primary) | Every region can still list messages. Sending and logging in fail |
+| `postgres` (the primary) | Every region can still list messages. Sending and logging in fail until a replica is promoted (below) |
+
+## Experiment: promoting a replica
+
+When the primary is gone, a replica can take over. Here that's `postgres-eu`, the replica next to it.
+Nothing has to be reconfigured afterwards:
+
+- Every connection string lists both servers that can be the primary, with `Target Session
+  Attributes=primary`, so Npgsql uses whichever one is the primary.
+- The replicas do the same (`target_session_attrs=primary`) and follow the new one by themselves.
+- `postgres/node.sh` starts every server, and the data decides its role, so a promoted replica stays
+  the primary after a restart.
+
+The primary fails:
+
+```powershell
+docker compose -f deploy/multi-region/docker-compose.yml kill postgres
+```
+
+Sending and logging in now fail in every region. First **fence** the old primary: mark it so that it can
+never start as a primary again. Its container is stopped, so this writes into its data volume:
+
+```powershell
+docker compose -f deploy/multi-region/docker-compose.yml run --rm --no-deps --entrypoint touch postgres /var/lib/postgresql/data/pingo.fenced
+```
+
+Then promote the replica:
+
+```powershell
+docker compose -f deploy/multi-region/docker-compose.yml exec postgres-eu psql -U messenger -d messenger_messages -c "select pg_promote()"
+```
+
+Every region could send again 3 to 6 seconds later. Bring the old primary back:
+
+```powershell
+docker compose -f deploy/multi-region/docker-compose.yml start postgres
+```
+
+Because of the mark, it runs `pg_rewind`: it throws away whatever the new primary doesn't have and then
+follows it as a replica. To promote it back later, swap `postgres` and `postgres-eu` in the commands.
+
+**Why fencing matters.** Started without the mark, the old primary would be a second primary, and Npgsql
+picks the first one in its list. That happened once in this lab, through a mistyped command: for a minute,
+some messages went to each primary, and the US and Asian replicas followed the old one. Repairing that
+(`pg_rewind` on every server that followed the old primary) deleted the messages written there. As a second
+line of defence, `node.sh` refuses to start as a primary when another primary answers, but that check
+can't see a primary that is down at that moment.
+
+**A confirmed message can be lost.** Replication is asynchronous: the primary answers before any replica
+has the change. Stop the replicas, send a message (`201 Created`), kill the primary, start the replicas
+and promote one: the message is gone from every server, and the old primary's rewind deletes its copy too.
+The sender's browser still shows it (D-069), nobody else's does. Synchronous replication
+(`synchronous_standby_names`) closes this gap, but every write then waits for a replica, from the US or
+Asia for at least 90 ms.
 
 ## Good to know
 

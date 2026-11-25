@@ -1561,3 +1561,33 @@ promoting a replica that never received it would stay on its author's screen. Af
 reload, a list from a replica that is further behind than the one before can hide a message for a moment.
 Every send now costs a second request that returns all messages (D-010), though from the replica. Other
 people's messages still appear only after sending or reloading; that needs a push channel (SignalR).
+
+## D-070: Promote a replica by hand; clients and replicas find the primary themselves
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** With the primary gone, the lab could still list messages (D-068) but not send them or log in.
+
+**Decision:**
+
+- The operator promotes a replica with `pg_promote()`; nothing promotes one automatically.
+- Nothing needs reconfiguring afterwards. Connection strings list both servers that may be the primary
+  (`postgres` and `postgres-eu`) with `Target Session Attributes=primary` and `Host Recheck Seconds=2`.
+  Replicas get both in `primary_conninfo` with `target_session_attrs=primary` and follow the new
+  timeline by themselves.
+- One start script, `postgres/node.sh`, for all four servers. The data decides the role, so a promoted
+  replica stays the primary after a restart.
+- Fencing: before promoting, the operator marks the old primary's data (`pingo.fenced`). When it starts
+  again, it rewinds with `pg_rewind` (`wal_log_hints=on` everywhere) and follows the new primary. As a
+  second check, a server that would start as a primary follows instead when another primary answers.
+
+**Consequences:** In the lab, every region could send again 3 to 6 s after the promotion. Replication
+stays asynchronous, so a confirmed message that no replica had yet is lost, which the lab demonstrates.
+Fencing depends on the operator; the automatic check can't see a primary that is down. A split brain did
+happen once while building this, through a mistyped fence command, and repairing it deleted the messages
+written to the old primary. Automatic promotion with a consensus (Patroni, or a managed PostgreSQL)
+would avoid both, at the cost of another moving part. Getting the rewind to work after a crash needed two
+fixes in `node.sh`: removing the killed server's stale lock file, and running its crash recovery with
+`wal_log_hints=on`.

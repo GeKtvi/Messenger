@@ -19,6 +19,7 @@
     <File Path="deploy/multi-region/docker-compose.yml" />
     <File Path="deploy/multi-region/measure.py" />
     <File Path="deploy/multi-region/README.md" />
+    <File Path="deploy/multi-region/postgres/node.sh" />
     <File Path="deploy/multi-region/wan-setup.sh" />
   </Folder>
   <Folder Name="/Edge/">

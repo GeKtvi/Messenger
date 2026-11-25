@@ -34,6 +34,8 @@ apis() {
 # shared <from region> <round trip in ms>: what exists only in the EU
 shared() {
     link "$1" 5432 postgres:5432 "$2"
+    # The replica that is promoted if postgres fails.
+    link "$1" 5433 postgres-eu:5432 "$2"
     link "$1" 6379 redis:6379 "$2"
     link "$1" 5672 rabbitmq:5672 "$2"
 }
