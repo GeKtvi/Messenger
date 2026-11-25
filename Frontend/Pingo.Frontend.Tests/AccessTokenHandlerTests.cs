@@ -23,7 +23,7 @@ public class AccessTokenHandlerTests
                 _messages.ValidTokens.Add(token);
         };
         _session = new AuthSession(new IdentityApiClient(
-            new HttpClient(_identity) { BaseAddress = new Uri("http://identity/") }));
+            new HttpClient(_identity) { BaseAddress = new Uri("http://identity/") }), new FakeRefreshLock());
         _client = new HttpClient(new AccessTokenHandler(_session) { InnerHandler = _messages })
         {
             BaseAddress = new Uri("http://messages/"),

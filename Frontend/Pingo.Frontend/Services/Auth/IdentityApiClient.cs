@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Components.WebAssembly.Http;
 
@@ -30,11 +31,16 @@ public class IdentityApiClient(HttpClient http)
         return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
     }
 
-    // Uses the refresh token cookie; null if there's no valid session.
+    // Uses the refresh token cookie; null if there's no valid session, which only a 401 says. Any other
+    // failure throws HttpRequestException: the session may well still be valid.
     public async Task<TokenResponse?> RefreshAsync(CancellationToken ct = default)
     {
         using var response = await SendAsync(HttpMethod.Post, "api/auth/refresh", body: null, ct);
-        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<TokenResponse>(ct) : null;
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            return null;
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<TokenResponse>(ct);
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)

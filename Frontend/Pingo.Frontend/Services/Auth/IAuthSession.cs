@@ -23,7 +23,7 @@ public interface IAuthSession
 
     Task LogoutAsync();
 
-    // Gets a new access token from the cookie, or signs out if the session has ended. Callers that
-    // arrive while a refresh is running share it.
+    // Gets a new access token from the cookie, or signs out if the session has ended. If Identity
+    // can't be reached or fails, nothing changes. Callers that arrive while a refresh is running share it.
     Task RefreshAsync();
 }

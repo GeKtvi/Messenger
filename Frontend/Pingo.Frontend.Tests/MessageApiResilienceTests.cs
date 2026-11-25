@@ -18,6 +18,8 @@ public class MessageApiResilienceTests : IDisposable
     {
         var services = new ServiceCollection();
         services.AddPingoApiClients(new Uri("http://messages/"), new Uri("http://identity/"));
+        // The app's lock needs a browser.
+        services.AddSingleton<IRefreshLock, FakeRefreshLock>();
         services.AddHttpClient<MessageApiClient>().ConfigurePrimaryHttpMessageHandler(() => _messages);
         services.AddHttpClient<IdentityApiClient>().ConfigurePrimaryHttpMessageHandler(() => _identity);
         services.Configure<MessageApiRetryOptions>(options =>

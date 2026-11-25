@@ -29,6 +29,7 @@ public static class ApiClientsSetup
         // an HttpOnly cookie (D-054). No retries here: refreshing twice after a lost response would
         // spend the single-use cookie twice and sign the user out.
         services.AddHttpClient<IdentityApiClient>(client => client.BaseAddress = identityApi);
+        services.AddSingleton<IRefreshLock, BrowserRefreshLock>();
         services.AddSingleton<IAuthSession, AuthSession>();
         services.AddSingleton<AuthenticationStateProvider, PingoAuthenticationStateProvider>();
 

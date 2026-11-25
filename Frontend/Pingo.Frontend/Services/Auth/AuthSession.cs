@@ -4,7 +4,7 @@ namespace Pingo.Frontend.Services.Auth;
 // session is restored from the HttpOnly refresh token cookie instead. A singleton: in Blazor
 // WebAssembly, IHttpClientFactory creates message handlers in their own scope, and they must see
 // the same token as the rest of the app.
-public class AuthSession(IdentityApiClient identity) : IAuthSession
+public class AuthSession(IdentityApiClient identity, IRefreshLock refreshLock) : IAuthSession
 {
     private readonly object _refreshGate = new();
     private Task? _restore;
@@ -49,8 +49,9 @@ public class AuthSession(IdentityApiClient identity) : IAuthSession
     }
 
     // Gets a new access token with the refresh token cookie; signs out if the session has ended.
-    // Single-flight: callers that arrive while a refresh is running share it. Refresh tokens work
-    // once, so two parallel refreshes would spend the cookie twice and the second would sign out.
+    // Refresh tokens work once, so two parallel refreshes would spend the cookie twice and the second
+    // would be refused. Within a tab, callers that arrive while a refresh is running share it; between
+    // tabs, which share the cookie, the refresh lock makes them take turns.
     public Task RefreshAsync()
     {
         lock (_refreshGate)
@@ -63,6 +64,8 @@ public class AuthSession(IdentityApiClient identity) : IAuthSession
 
     private async Task RunRefreshAsync()
     {
+        // By the time another tab releases the lock, the browser has stored the cookie it got.
+        await using var held = await refreshLock.AcquireAsync();
         try
         {
             var tokens = await identity.RefreshAsync();
@@ -71,9 +74,11 @@ public class AuthSession(IdentityApiClient identity) : IAuthSession
             else
                 SignIn(tokens.AccessToken);
         }
-        catch (HttpRequestException)
+        // TaskCanceledException: the request timed out.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            SignOut();
+            // Identity unreachable or failing, which says nothing about the session: stay as we are.
+            // The next request that gets a 401 tries again.
         }
     }
 

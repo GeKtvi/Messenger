@@ -216,8 +216,10 @@ running, not that PostgreSQL or RabbitMQ is reachable (D-062), and it isn't trac
   through the cookie and sends the request once more, so the user doesn't notice. Stream bodies
   aren't resent (they may already be consumed, and buffering them would cost memory); the token is
   still refreshed for the caller's next attempt. Requests that get
-  `401` at the same time share one refresh, because each refresh token works only once. If the
-  session has ended, the login form comes back.
+  `401` at the same time share one refresh, because each refresh token works only once. Tabs share
+  the cookie, so they refresh one at a time, through the browser's Web Locks API (D-073). If the
+  session has ended (Identity answers `401`), the login form comes back. If Identity is only
+  unreachable or failing, you stay signed in, and the next `401` tries again.
 - **Log out** ends the session in Identity and clears unsent messages.
 - **Retries:** if the Message API fails for a moment (a 5xx, a timeout, or the server being
   unreachable), the request is repeated up to 3 times with growing delays (about 0.5 s, 1 s, 2 s).
@@ -310,6 +312,7 @@ with no browser or Docker:
 
 | Test class | Covers |
 |---|---|
+| `AuthSessionTests` | Staying signed in when Identity fails, is unreachable or times out, signing out when the session has ended, two tabs refreshing at once |
 | `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
 | `MessageFeedTests` | Loading again after a send, merging lists without losing messages or edits, failed and overlapping loads, starting fresh after logout, pushed messages and edits, reloading after a reconnect |
 | `MessageOutboxTests` | Sent messages shown until a list contains them, also after a reload; merging without duplicates, no resending of delivered ones, logout, retries |

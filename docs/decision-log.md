@@ -1657,3 +1657,32 @@ Message API in every region, a browser is connected to one instance, but message
 without any request from it, also after Asia's Message API was killed and the chat reconnected to the US.
 Every instance gets every message, which is fine for one public chat; separate chats would need SignalR
 groups. A connection isn't closed when its token expires; the token is checked only when it connects.
+
+## D-073: Only a 401 ends the frontend's session, and tabs take turns refreshing
+
+- **Date:** 2026-11-26
+- **Stage:** 07
+- **Status:** Accepted
+
+**Context:** A review after stage 06 found two ways to be signed out with a valid session. Any failed
+refresh, such as a `503` or no network, counted as an ended session. And tabs share the refresh token
+cookie while single-flight (D-056) covers only one of them: two tabs refreshing at once sent the same
+token, and the loser's `401` also deletes the cookie (D-054), possibly after the winner had stored the
+new one.
+
+**Decision:**
+
+- `IdentityApiClient.RefreshAsync` reports an ended session only for `401`. On any other status, a
+  network error or a timeout, `AuthSession` keeps its state, and the next `401` tries again.
+- A refresh runs under a Web Lock (`navigator.locks`), shared by all tabs of the origin, so the next
+  tab sends the cookie the previous one got. It's behind `IRefreshLock`, with a small script in
+  `wwwroot/js/refresh-lock.js`; tests use an in-memory lock. Identity is unchanged.
+
+Not chosen: keeping the cookie on a failed refresh (the losing tab would still get a `401`), or a
+grace period for used tokens in Identity (it weakens single-use rotation).
+
+**Consequences:** Without Identity the user stays on the chat, where requests that need a new token
+fail until it's back. A reload during an outage still shows the login form, because there's no access
+token to restore. Web Locks exist only on HTTPS and localhost; elsewhere tabs don't take turns. A
+refresh that hangs holds the other tabs until it times out. A refresh whose answer is lost still
+spends the token, as noted in D-044.
