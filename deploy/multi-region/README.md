@@ -1,5 +1,8 @@
 # Multi-region lab
 
+> Additional work, not part of the homework stages. See "Additional work" in the main
+> [README](../../README.md).
+
 Pingo in three pretend regions behind reverse proxies in Docker, sharing one primary database in
 the EU, with a read replica in every region. It has its own containers and data and doesn't touch the
 development `docker-compose.yml`.

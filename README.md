@@ -35,6 +35,34 @@ To finish a stage:
 
 To view a stage's code: `git checkout 01` (or browse the tag on GitHub).
 
+## Additional work (not part of the homework)
+
+> **For the homework reviewer:** everything in this section was done on top of the required stages, on
+> the `lab/multi-region` branch, and merged after stage `06`. It isn't a homework stage and has no tag.
+> To review only the homework, check out tag `06`. Decision-log entries D-062 to D-072 belong to it; they
+> say "Multi-region lab (not a homework stage)".
+
+A lab that runs Pingo in three pretend regions (EU, US, Asia) with Docker Compose, to practise what a
+real multi-region deployment needs. Details and experiments: [deploy/multi-region/README.md](deploy/multi-region/README.md).
+
+New parts:
+
+- Dockerfiles for both APIs and the frontend, and `/health` on both APIs (D-062, D-063).
+- `Edge/Pingo.Edge`: a YARP reverse proxy standing in for a global load balancer, with region choice and
+  failover by health checks (D-064, D-065, D-067), and its tests in `Edge/Pingo.Edge.Tests`.
+- `deploy/multi-region`: the Compose setup, Toxiproxy delays between regions, PostgreSQL read replicas
+  and manual promotion of a replica (D-065, D-068, D-070).
+
+Changes to the homework code that came with it:
+
+- Message service: lists come from a read replica through a read-only `DbContext`, writes go to the
+  primary (D-068); failed database calls are repeated once after a PostgreSQL restart (D-071); new and
+  edited messages are pushed to open chats over SignalR (D-072).
+- Identity: the same retry after a PostgreSQL restart (D-071).
+- Frontend: the outbox keeps sent messages until a list contains them, the list is loaded again after
+  sending, and messages arrive live (D-069, D-072); a send that times out on every attempt now shows
+  **Retry** instead of staying on "Sending…".
+
 ## Structure
 
 ```
@@ -354,5 +382,5 @@ the APIs get connection strings and the JWT key from environment variables, e.g.
 
 ## Multi-region lab
 
-[deploy/multi-region/README.md](deploy/multi-region/README.md) runs Pingo from these images in three pretend regions,
-with artificial delays between them.
+Additional work, not part of the homework (see above). [deploy/multi-region/README.md](deploy/multi-region/README.md)
+runs Pingo from these images in three pretend regions, with artificial delays between them.
