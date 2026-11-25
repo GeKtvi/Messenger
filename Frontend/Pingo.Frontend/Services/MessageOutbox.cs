@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.JSInterop;
+using Polly.Timeout;
 using Pingo.Frontend.Models;
 
 namespace Pingo.Frontend.Services;
@@ -113,7 +114,8 @@ public class MessageOutbox(MessageApiClient api, IJSRuntime js)
                 confirmed = true;
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // TimeoutRejectedException: the retry pipeline gives up because every attempt took too long.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutRejectedException)
         {
             message.Status = PendingStatus.Failed;
         }

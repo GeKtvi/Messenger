@@ -278,7 +278,7 @@ with no browser or Docker:
 | `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
 | `MessageFeedTests` | Loading again after a send, merging lists without losing messages or edits, failed and overlapping loads, starting fresh after logout |
 | `MessageOutboxTests` | Sent messages shown until a list contains them, also after a reload; merging without duplicates, no resending of delivered ones, logout, retries |
-| `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token |
+| `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token, a send whose every attempt times out marked as not sent |
 
 `Pingo.Edge.Tests` runs the real edge in front of fake APIs on local ports, with no Docker
 (`FailoverTests`): region order, failing over when an API stops or reports unhealthy, returning when

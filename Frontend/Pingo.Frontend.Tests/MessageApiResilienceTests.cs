@@ -144,6 +144,27 @@ public class MessageApiResilienceTests : IDisposable
         _messages.Received.Select(r => r.BearerToken).Should().Equal("token-1", "token-1", "token-2");
     }
 
+    [Fact]
+    public async Task SendTimingOutOnEveryAttempt_IsMarkedNotSent()
+    {
+        // The pipeline gives up with its own timeout exception, not an HttpRequestException.
+        await SignInAsync();
+        for (var i = 0; i < 4; i++)
+            _messages.Hang();
+        var outbox = new MessageOutbox(Api, new FakeLocalStorage());
+        await outbox.InitializeAsync();
+
+        await outbox.SendAsync("hello");
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (outbox.Pending.Single().Status != Models.PendingStatus.Failed)
+        {
+            DateTime.UtcNow.Should().BeBefore(deadline, "the message should be marked as not sent");
+            await Task.Delay(50);
+        }
+        _messages.Received.Should().HaveCount(4);
+    }
+
     private async Task SignInAsync() =>
         (await _services.GetRequiredService<IAuthSession>().LoginAsync("ann@example.com", "password")).Should().BeNull();
 
