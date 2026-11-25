@@ -198,6 +198,13 @@ The UI sends messages the way most messengers do:
 - Pending messages are kept in the browser's `localStorage` (`pingo.outbox`), so they survive a
   reload and are resent automatically when the page opens. Each one keeps its client-generated id,
   so resending never creates a duplicate.
+- Once confirmed, a message is kept there with the server's copy until a loaded list contains it,
+  because a list from a read replica may lag behind (D-069). Such a message is
+  never resent.
+
+After each sent message the list is loaded again, which also shows other people's new messages. A new
+list is merged into what's shown and never removes anything. Without sending or reloading the page,
+other people's messages don't appear: that would need a push channel such as SignalR.
 
 ## Tests
 
@@ -264,6 +271,8 @@ with no browser or Docker:
 | Test class | Covers |
 |---|---|
 | `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
+| `MessageFeedTests` | Loading again after a send, merging lists without losing messages or edits, failed and overlapping loads, starting fresh after logout |
+| `MessageOutboxTests` | Sent messages shown until a list contains them, also after a reload; merging without duplicates, no resending of delivered ones, logout, retries |
 | `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token |
 
 `Pingo.Edge.Tests` runs the real edge in front of fake APIs on local ports, with no Docker

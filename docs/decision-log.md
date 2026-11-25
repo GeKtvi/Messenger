@@ -1528,3 +1528,36 @@ primary down, every region can still list messages. Lists may be a little old. `
 needs `--context MessageDbContext`.
 Tests use a second in-memory database as a replica that never catches up; replication itself was
 checked in the lab.
+
+## D-069: The frontend keeps its own sent messages until a loaded list contains them
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** Lists come from a replica that may lag (D-068), so reloading right after a send could make
+the user's own message disappear for a moment. The outbox (D-025) dropped a message as soon as the server
+confirmed it.
+
+**Decision:** The outbox keeps a confirmed message, with the server's copy, in `localStorage` until a
+loaded list contains its id. The chat shows the loaded list plus these messages, in order and without
+duplicates; the list's copy wins. They're never resent.
+Logging out clears them, and a send still under way at logout isn't kept. There's no time limit: it would
+have to compare the server's clock with the browser's, and since messages can't be deleted and lists
+aren't paged, a confirmed message eventually appears in a list.
+
+After each confirmed send, the list is loaded again. `MessageFeed` holds what the open chat shows:
+
+- A new list is merged into it by id and never removes a message, because the next answer may come from
+  a replica that is further behind. Of two copies, the one edited later wins.
+- One load runs at a time; sends that finish meanwhile cause exactly one more. A failed load keeps what
+  is shown.
+- Closing the chat page, which logging out does, clears it, and answers to older requests are ignored.
+
+**Consequences:** The server's API says nothing about replicas. It covers only this browser: another
+device, other people's messages and the login greeting still appear when the replica has them.
+Deleting messages or paging the list would need a new rule for forgetting copies. A message lost by
+promoting a replica that never received it would stay on its author's screen. After a page
+reload, a list from a replica that is further behind than the one before can hide a message for a moment.
+Every send now costs a second request that returns all messages (D-010), though from the replica. Other
+people's messages still appear only after sending or reloading; that needs a push channel (SignalR).

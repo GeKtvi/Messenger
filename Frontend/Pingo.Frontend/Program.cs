@@ -20,6 +20,7 @@ builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddScoped<MessageOutbox>();
+builder.Services.AddScoped<MessageFeed>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();
