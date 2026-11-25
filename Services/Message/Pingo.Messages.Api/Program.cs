@@ -1,5 +1,6 @@
 using Pingo.Messages;
 using Pingo.Messages.Api.Auth;
+using Pingo.Messages.Api.Live;
 using Pingo.Messages.Api.Messaging;
 using Pingo.ServiceDefaults;
 
@@ -15,6 +16,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddMessages(
     builder.Configuration.GetConnectionString("Messages"),
     builder.Configuration.GetConnectionString("MessagesRead"));
+builder.Services.AddPingoLiveMessages();
 builder.Services.AddPingoJwtAuthentication(builder.Configuration.GetSection(JwtValidationOptions.SectionName));
 builder.Services.AddPingoMessaging(builder.Configuration.GetConnectionString("RabbitMq"));
 
@@ -43,6 +45,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<MessagesHub>(MessagesHub.Path);
 app.MapPingoHealth();
 
 app.Run();

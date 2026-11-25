@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Pingo.Frontend;
 using Pingo.Frontend.Services;
+using Pingo.Frontend.Services.Auth;
 using MudBlazor.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -20,6 +21,10 @@ builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddScoped<MessageOutbox>();
+builder.Services.AddScoped<ILiveMessages>(services => new LiveMessages(
+    new Uri(new Uri(appAddress, messageApiUrl), "api/messages/hub"),
+    services.GetRequiredService<IAuthSession>(),
+    services.GetRequiredService<ILogger<LiveMessages>>()));
 builder.Services.AddScoped<MessageFeed>();
 builder.Services.AddMudServices();
 

@@ -1622,3 +1622,38 @@ committing but before answering, the retry runs the statement again: a registrat
 email is taken, and a refresh would end the session. Component tests end the app's connections with
 `pg_terminate_backend`. The multi-host test fails without `ClearDatabaseStates` for the Message service,
 but not for Identity, where only the lab showed the problem.
+
+## D-072: Live messages with SignalR, fanned out to every instance over RabbitMQ
+
+- **Date:** 2026-11-26
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** Other people's messages appeared only after sending something or reloading (D-069). With a
+Message API in every region, a browser is connected to one instance, but messages are saved by any.
+
+**Decision:**
+
+- A SignalR hub, `MessagesHub`, at `/api/messages/hub`, so the edge's existing route reaches it. It
+  requires the access token and only pushes: clients still send with `PUT`.
+- The business layer reports each created or edited message (not an unchanged repeat) to an
+  `IMessageNotifier`. The API's implementation publishes `MessageSaved` over RabbitMQ (MassTransit,
+  D-059) in the background, so a send doesn't wait for the broker in the EU; if publishing fails, open
+  chats miss the message until they next load the list.
+- Each instance consumes `MessageSaved` on a temporary queue of its own, deleted when it stops, and pushes
+  the message to its own connections. A shared queue, like `user-logged-in`'s, would give each event to
+  only one instance. This uses RabbitMQ, which the service already has, rather than SignalR's Redis
+  backplane; on Azure, Azure SignalR Service would replace both.
+- The browser connects with WebSockets only and skips the negotiate request, so no sticky sessions are
+  needed behind the edge. A browser can't set headers on a WebSocket, so the token goes in the
+  `access_token` query parameter, accepted only for the hub. The hub pings every 5 s, under the edge's
+  10 s idle limit (D-067).
+- Frontend: `LiveMessages` (behind `ILiveMessages`) keeps the connection while the chat is open, with
+  SignalR's automatic reconnect, and starts over with a fresh access token when that gives up.
+  `MessageFeed` merges pushed messages like loaded ones, keeps those arriving before the first load, and
+  loads the list again after a reconnect to catch up.
+
+**Consequences:** In the lab, a message sent in the US or through the EU appeared in a chat open in Asia
+without any request from it, also after Asia's Message API was killed and the chat reconnected to the US.
+Every instance gets every message, which is fine for one public chat; separate chats would need SignalR
+groups. A connection isn't closed when its token expires; the token is checked only when it connects.

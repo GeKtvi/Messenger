@@ -3,16 +3,20 @@ using Pingo.Frontend.Models;
 
 namespace Pingo.Frontend.Services;
 
-// The messages the open chat shows. Loads the list when the chat opens and again after each message
-// the user has sent. Lists may come from databases that lag behind by different amounts, so a new list
+// The messages the open chat shows. Loads the list when the chat opens, again after each message the
+// user has sent and after the live connection was lost, and adds messages pushed by the server. Lists may come from databases that lag behind by different amounts, so a new list
 // is merged into what is already shown and never takes anything away (D-069).
 public class MessageFeed
 {
     private readonly MessageApiClient _api;
     private readonly MessageOutbox _outbox;
+    private readonly ILiveMessages _live;
 
-    // Every message listed since the chat was opened; null until the first load has finished.
+    // Every message listed or pushed since the chat was opened; null until the first load has finished.
     private List<MessageDto>? _listed;
+
+    // Pushed before the first load finished; added to it then.
+    private List<MessageDto> _early = [];
 
     private bool _open;
 
@@ -23,10 +27,13 @@ public class MessageFeed
     private bool _loadAgain;
     private Task _load = Task.CompletedTask;
 
-    public MessageFeed(MessageApiClient api, MessageOutbox outbox)
+    public MessageFeed(MessageApiClient api, MessageOutbox outbox, ILiveMessages live)
     {
         _api = api;
         _outbox = outbox;
+        _live = live;
+        live.Received += OnReceived;
+        live.Reconnected += OnReconnected;
         outbox.Changed += () => Changed?.Invoke();
         outbox.Delivered += OnDelivered;
     }
@@ -53,6 +60,8 @@ public class MessageFeed
         if (!_open)
             return;
 
+        // Before loading, so nothing saved in between is missed.
+        _live.Start();
         await LoadAsync();
     }
 
@@ -61,6 +70,8 @@ public class MessageFeed
     {
         _open = false;
         _session++;
+        _ = _live.StopAsync();
+        _early = [];
         _loadAgain = false;
         _listed = null;
         LoadError = null;
@@ -77,6 +88,24 @@ public class MessageFeed
         }
 
         return _load = LoadUntilCurrentAsync();
+    }
+
+    private void OnReceived(MessageDto message)
+    {
+        if (!_open)
+            return;
+
+        if (_listed is null)
+            _early.Add(message);
+        else
+            _listed = Combine(_listed, [message]);
+        Changed?.Invoke();
+    }
+
+    private void OnReconnected()
+    {
+        if (_open)
+            _ = LoadAsync();
     }
 
     private void OnDelivered()
@@ -112,7 +141,8 @@ public class MessageFeed
             if (session != _session)
                 return;
 
-            _listed = Combine(_listed ?? [], loaded);
+            _listed = Combine(Combine(_listed ?? [], _early), loaded);
+            _early = [];
             LoadError = null;
             await _outbox.ForgetListedAsync(loaded);
         }
@@ -122,14 +152,16 @@ public class MessageFeed
                 return;
 
             // What is already shown stays.
-            _listed ??= [];
+            _listed ??= Combine([], _early);
+            _early = [];
             LoadError = ex.Message;
         }
 
         Changed?.Invoke();
     }
 
-    // All messages of both lists. Of two copies the one edited later wins, otherwise the newly loaded one.
+    // All messages of both lists. Of two copies the one edited later wins, otherwise the one from the
+    // second list.
     private static List<MessageDto> Combine(IReadOnlyList<MessageDto> shown, IReadOnlyList<MessageDto> loaded)
     {
         var byId = shown.ToDictionary(m => m.Id);

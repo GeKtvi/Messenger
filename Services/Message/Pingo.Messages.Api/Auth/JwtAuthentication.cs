@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Pingo.Messages.Api.Live;
 
 namespace Pingo.Messages.Api.Auth;
 
@@ -45,6 +46,17 @@ public static class JwtAuthentication
                     ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
                     // The default allows 5 minutes past "exp"; a little slack for clock drift is enough.
                     ClockSkew = TimeSpan.FromSeconds(30),
+                };
+                // A browser can't set headers on a WebSocket, so SignalR sends the token in the query
+                // string instead. Accepted only for the hub.
+                bearer.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        if (context.Request.Path.StartsWithSegments(MessagesHub.Path))
+                            context.Token = context.Request.Query["access_token"];
+                        return Task.CompletedTask;
+                    },
                 };
             });
 

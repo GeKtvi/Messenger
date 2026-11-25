@@ -30,15 +30,18 @@ public class MessagesTracingTests(PostgresMessagesApiFactory factory)
             await harness.Bus.Publish(new UserLoggedIn("ann@example.com"));
         }
 
-        var trace = await factory.Spans.WaitForTraceAsync(traceId, IsConsumerProcess);
-        var process = trace.Should().ContainSingle(s => IsConsumerProcess(s)).Subject;
+        var trace = await factory.Spans.WaitForTraceAsync(traceId, s => IsConsumerProcess(s, "message-saved"));
+        var process = trace.Should().ContainSingle(s => IsConsumerProcess(s, "user-logged-in")).Subject;
         var database = trace.Where(s => s.Source.Name == "Npgsql").ToList();
         database.Should().NotBeEmpty().And.OnlyContain(s => IsInside(s, process, trace));
         database.Select(Sql).Should().Contain(sql => sql.Contains("INSERT INTO"), "saving the greeting is part of the trace");
+        trace.Should().ContainSingle(s => IsConsumerProcess(s, "message-saved"), "pushing the greeting to open chats is part of it too");
     }
 
-    private static bool IsConsumerProcess(Activity span) =>
-        span.Source.Name == "MassTransit" && span.Kind == ActivityKind.Consumer && span.DisplayName.EndsWith(" process");
+    // A queue's name starts with its consumer's, e.g. "user-logged-in process".
+    private static bool IsConsumerProcess(Activity span, string queue) =>
+        span.Source.Name == "MassTransit" && span.Kind == ActivityKind.Consumer
+        && span.DisplayName.StartsWith(queue) && span.DisplayName.EndsWith(" process");
 
     // The SQL of a database span (newer semantic conventions call the tag db.query.text).
     private static string Sql(Activity span) =>

@@ -6,7 +6,8 @@ using MessageEntity = Pingo.Messages.Entities.Message;
 
 namespace Pingo.Messages;
 
-internal class MessageService(MessageDbContext db, ReadOnlyMessageDbContext readDb, TimeProvider time) : IMessageService
+internal class MessageService(
+    MessageDbContext db, ReadOnlyMessageDbContext readDb, IMessageNotifier notifier, TimeProvider time) : IMessageService
 {
     // Scaffold only: loads and returns every message with no paging or limit.
     // Fine for the first stage; replace with a paged/cursor-based query before real use.
@@ -34,7 +35,9 @@ internal class MessageService(MessageDbContext db, ReadOnlyMessageDbContext read
             try
             {
                 await db.SaveChangesAsync(ct);
-                return new SendMessageResult(ToModel(message), Created: true);
+                var created = ToModel(message);
+                await notifier.MessageSavedAsync(created, ct);
+                return new SendMessageResult(created, Created: true);
             }
             catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
             {
@@ -51,6 +54,7 @@ internal class MessageService(MessageDbContext db, ReadOnlyMessageDbContext read
             message.Text = text;
             message.UpdatedAt = Now();
             await db.SaveChangesAsync(ct);
+            await notifier.MessageSavedAsync(ToModel(message), ct);
         }
 
         return new SendMessageResult(ToModel(message), Created: false);

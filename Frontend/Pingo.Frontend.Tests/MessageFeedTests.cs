@@ -12,6 +12,7 @@ public class MessageFeedTests
     private static readonly DateTimeOffset Start = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     private readonly FakeApi _api = new();
+    private readonly FakeLiveMessages _live = new();
     private readonly MessageOutbox _outbox;
     private readonly MessageFeed _feed;
 
@@ -19,7 +20,7 @@ public class MessageFeedTests
     {
         var client = new MessageApiClient(new HttpClient(_api) { BaseAddress = new Uri("http://messages.test/") });
         _outbox = new MessageOutbox(client, new FakeLocalStorage());
-        _feed = new MessageFeed(client, _outbox);
+        _feed = new MessageFeed(client, _outbox, _live);
     }
 
     [Fact]
@@ -201,6 +202,72 @@ public class MessageFeedTests
         _feed.Messages.Should().BeNull();
     }
 
+    [Fact]
+    public async Task PushedMessage_IsShown()
+    {
+        _api.List = [Message("one", 1)];
+        await _feed.OpenAsync();
+
+        _live.Push(Message("someone else's", 2));
+
+        Texts().Should().Equal("one", "someone else's");
+        _api.Loads.Should().Be(1, "a push needs no load");
+    }
+
+    [Fact]
+    public async Task PushedEdit_ReplacesTheText_AndAnOlderListDoesNotUndoIt()
+    {
+        var original = Message("before", 1);
+        _api.List = [original];
+        await _feed.OpenAsync();
+
+        _live.Push(original with { Text = "after", UpdatedAt = Start.AddMinutes(5) });
+        await _feed.LoadAsync();
+
+        Texts().Should().Equal("after");
+    }
+
+    [Fact]
+    public async Task MessagePushedDuringTheFirstLoad_IsShownAfterIt()
+    {
+        var gate = _api.HoldNextLoad();
+        var open = _feed.OpenAsync();
+        await WaitAsync(() => _api.Loads == 1);
+
+        _live.Push(Message("pushed early", 2));
+        _feed.Messages.Should().BeNull("the first load hasn't finished");
+        gate.SetResult();
+        await open;
+
+        Texts().Should().Equal("pushed early");
+    }
+
+    [Fact]
+    public async Task Reconnected_LoadsTheListAgain()
+    {
+        await _feed.OpenAsync();
+        _api.List = [Message("missed while offline", 1)];
+
+        _live.RaiseReconnected();
+        await WaitAsync(() => _api.Loads == 2 && _api.LoadsRunning == 0);
+        await Task.Delay(50);
+
+        Texts().Should().Equal("missed while offline");
+    }
+
+    [Fact]
+    public async Task LiveConnection_RunsOnlyWhileTheChatIsOpen()
+    {
+        await _feed.OpenAsync();
+        _live.Running.Should().BeTrue();
+
+        _feed.Close();
+        _live.Push(Message("after closing", 1));
+
+        _live.Running.Should().BeFalse();
+        _feed.Messages.Should().BeNull();
+    }
+
     private IEnumerable<string> Texts() => _feed.Messages!.Select(m => m.Text);
 
     // Sends and waits until it's delivered and the load it causes has finished.
@@ -225,6 +292,27 @@ public class MessageFeedTests
             DateTime.UtcNow.Should().BeBefore(deadline);
             await Task.Delay(10);
         }
+    }
+
+    private sealed class FakeLiveMessages : ILiveMessages
+    {
+        public event Action<MessageDto>? Received;
+
+        public event Action? Reconnected;
+
+        public bool Running { get; private set; }
+
+        public void Start() => Running = true;
+
+        public Task StopAsync()
+        {
+            Running = false;
+            return Task.CompletedTask;
+        }
+
+        public void Push(MessageDto message) => Received?.Invoke(message);
+
+        public void RaiseReconnected() => Reconnected?.Invoke();
     }
 
     private sealed class FakeApi : HttpMessageHandler

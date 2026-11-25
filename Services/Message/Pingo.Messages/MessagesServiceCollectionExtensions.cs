@@ -26,6 +26,7 @@ public static class MessagesServiceCollectionExtensions
         services.AddDbContext<ReadOnlyMessageDbContext>((provider, options) =>
             UseDatabase(options, provider.GetRequiredKeyedService<NpgsqlDataSource>(Replica)));
         services.AddScoped<IMessageService, MessageService>();
+        services.TryAddScoped<IMessageNotifier, NoMessageNotifier>();
         services.TryAddSingleton(TimeProvider.System);
 
         return services;

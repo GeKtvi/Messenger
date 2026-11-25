@@ -192,6 +192,8 @@ Asia for at least 90 ms.
 - After a PostgreSQL restart, the services repeat a query that hit a dead pooled connection, so nothing
   fails (D-071). The first login can take a second or two from the US or Asia while new connections are
   opened over the long distance.
+- Chats open in different regions see each other's messages at once (SignalR, D-072). The edge closes a
+  connection without traffic after 10 s, so the hub sends a keep-alive every 5 s.
 - The browser talks to one origin, so there are no CORS preflights, and the `SameSite=Strict` refresh
   cookie simply works.
 - Cookies ignore ports, so the three edges share a login on `localhost`, like one user travelling. A

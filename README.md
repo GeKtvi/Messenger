@@ -80,6 +80,12 @@ The service also listens to RabbitMQ: when Identity publishes `UserLoggedIn`, it
 "Привет, user@example.com!" to the chat. The event's id becomes the message id, so a redelivered
 event doesn't greet twice.
 
+**Live messages.** Open chats get every created or edited message pushed over SignalR, at
+`/api/messages/hub` (WebSockets only, the access token in the `access_token` query parameter). The
+service publishes `MessageSaved` over RabbitMQ, and every instance receives it on a queue of its own
+and passes it to the chats connected to it, so a message sent in one region reaches chats open in
+another (D-072).
+
 If PostgreSQL restarted, the first query over a pooled connection fails; it's repeated on a new one
 (D-071). The same goes for Identity.
 
@@ -206,8 +212,8 @@ The UI sends messages the way most messengers do:
   never resent.
 
 After each sent message the list is loaded again, which also shows other people's new messages. A new
-list is merged into what's shown and never removes anything. Without sending or reloading the page,
-other people's messages don't appear: that would need a push channel such as SignalR.
+list is merged into what's shown and never removes anything. Messages anyone else sends arrive at once
+over SignalR; after a lost connection, the list is loaded again to catch up (D-072).
 
 ## Tests
 
@@ -231,6 +237,7 @@ dotnet test Pingo.slnx
 | `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
 | `MessagesTracingTests` | Real PostgreSQL in Docker, MassTransit test harness | The consumer continues the publisher's trace, with the greeting's `INSERT` under its span |
 | `MessagesReplicaTests` | EF Core in-memory, a second database as a lagging replica | Lists read the replica, sends look ids up on the primary, the read-only context refuses to save |
+| `MessagesLiveTests` | EF Core in-memory, MassTransit test harness, SignalR client | Sends, edits and greetings pushed, repeats not; the hub needs a token; the query-string token works on the hub's WebSocket and nowhere else |
 | `MessagesDatabaseRestartTests` | Real PostgreSQL in Docker | Listing and sending right after the server ended every connection, with one host and with two listed |
 | `MessagesHealthTests` | EF Core in-memory | `/health` without a token, with a failing dependency, and not traced |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
@@ -276,7 +283,7 @@ with no browser or Docker:
 | Test class | Covers |
 |---|---|
 | `AccessTokenHandlerTests` | Bearer header, refresh and retry on `401`, one shared refresh for parallel `401`s, signing out when the session has ended, resending JSON bodies but not streams |
-| `MessageFeedTests` | Loading again after a send, merging lists without losing messages or edits, failed and overlapping loads, starting fresh after logout |
+| `MessageFeedTests` | Loading again after a send, merging lists without losing messages or edits, failed and overlapping loads, starting fresh after logout, pushed messages and edits, reloading after a reconnect |
 | `MessageOutboxTests` | Sent messages shown until a list contains them, also after a reload; merging without duplicates, no resending of delivered ones, logout, retries |
 | `MessageApiResilienceTests` | The app's real registration: retries on 5xx, unreachable server and slow attempts, giving up after 3 retries, no retry on 4xx, sends retried with the same id, a `503` followed by an expired token, a send whose every attempt times out marked as not sent |
 
