@@ -189,10 +189,9 @@ Asia for at least 90 ms.
 
 ## Good to know
 
-- The first request over a database connection that a PostgreSQL restart has cut answers `500`; the next
-  one works. The frontend retries that for messages, but not for login or restoring the session, which
-  then shows the login form.
-
+- After a PostgreSQL restart, the services repeat a query that hit a dead pooled connection, so nothing
+  fails (D-071). The first login can take a second or two from the US or Asia while new connections are
+  opened over the long distance.
 - The browser talks to one origin, so there are no CORS preflights, and the `SameSite=Strict` refresh
   cookie simply works.
 - Cookies ignore ports, so the three edges share a login on `localhost`, like one user travelling. A

@@ -17,14 +17,14 @@ internal class PasswordLoginRepository(IdentityDatabase database) : IPasswordLog
     // so the row uses DateTime and is converted to DateTimeOffset below.
     private record Row(Guid UserId, string Email, byte[] Hash, byte[] Salt, int Iterations, DateTime CreatedAt);
 
-    public async Task<PasswordLogin?> FindByEmailAsync(string normalizedEmail, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
-            FindByEmailSql, new { Email = normalizedEmail }, cancellationToken: ct));
+    public Task<PasswordLogin?> FindByEmailAsync(string normalizedEmail, CancellationToken ct = default) =>
+        database.RunAsync(async connection =>
+        {
+            var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+                FindByEmailSql, new { Email = normalizedEmail }, cancellationToken: ct));
 
-        return row is null
-            ? null
-            : new PasswordLogin(row.UserId, row.Email, new PasswordHash(row.Hash, row.Salt, row.Iterations), new DateTimeOffset(row.CreatedAt));
-    }
+            return row is null
+                ? null
+                : new PasswordLogin(row.UserId, row.Email, new PasswordHash(row.Hash, row.Salt, row.Iterations), new DateTimeOffset(row.CreatedAt));
+        }, ct);
 }

@@ -17,29 +17,29 @@ internal class UserRepository(IdentityDatabase database) : IUserRepository
 
     private const string EmailUniqueConstraint = "password_logins_email_key";
 
-    public async Task<bool> TryCreateWithPasswordLoginAsync(User user, PasswordLogin login, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
-        try
+    public Task<bool> TryCreateWithPasswordLoginAsync(User user, PasswordLogin login, CancellationToken ct = default) =>
+        database.RunAsync(async connection =>
         {
-            await connection.ExecuteAsync(new CommandDefinition(InsertUserSql, user, transaction, cancellationToken: ct));
-            await connection.ExecuteAsync(new CommandDefinition(InsertPasswordLoginSql, new
+            await using var transaction = await connection.BeginTransactionAsync(ct);
+            try
             {
-                login.UserId,
-                Email = login.NormalizedEmail,
-                login.Password.Hash,
-                login.Password.Salt,
-                login.Password.Iterations,
-                login.CreatedAt,
-            }, transaction, cancellationToken: ct));
-            await transaction.CommitAsync(ct);
-            return true;
-        }
-        catch (PostgresException ex) when (ex is { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: EmailUniqueConstraint })
-        {
-            // The transaction rolls back on dispose, so the user row is removed too.
-            return false;
-        }
-    }
+                await connection.ExecuteAsync(new CommandDefinition(InsertUserSql, user, transaction, cancellationToken: ct));
+                await connection.ExecuteAsync(new CommandDefinition(InsertPasswordLoginSql, new
+                {
+                    login.UserId,
+                    Email = login.NormalizedEmail,
+                    login.Password.Hash,
+                    login.Password.Salt,
+                    login.Password.Iterations,
+                    login.CreatedAt,
+                }, transaction, cancellationToken: ct));
+                await transaction.CommitAsync(ct);
+                return true;
+            }
+            catch (PostgresException ex) when (ex is { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: EmailUniqueConstraint })
+            {
+                // The transaction rolls back on dispose, so the user row is removed too.
+                return false;
+            }
+        }, ct);
 }

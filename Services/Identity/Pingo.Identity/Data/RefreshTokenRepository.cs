@@ -29,49 +29,43 @@ internal class RefreshTokenRepository(IdentityDatabase database) : IRefreshToken
     // Npgsql reads timestamptz as a UTC DateTime, and Dapper's constructor mapping needs exact types.
     private record Row(byte[] TokenHash, Guid UserId, DateTime CreatedAt, DateTime ExpiresAt);
 
-    public async Task AddAsync(StoredRefreshToken token, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        await connection.ExecuteAsync(new CommandDefinition(InsertSql, token, cancellationToken: ct));
-    }
+    public Task AddAsync(StoredRefreshToken token, CancellationToken ct = default) =>
+        database.RunAsync(connection =>
+            connection.ExecuteAsync(new CommandDefinition(InsertSql, token, cancellationToken: ct)), ct);
 
-    public async Task<StoredRefreshToken?> FindAsync(byte[] tokenHash, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
-            FindSql, new { TokenHash = tokenHash }, cancellationToken: ct));
+    public Task<StoredRefreshToken?> FindAsync(byte[] tokenHash, CancellationToken ct = default) =>
+        database.RunAsync(async connection =>
+        {
+            var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+                FindSql, new { TokenHash = tokenHash }, cancellationToken: ct));
 
-        return row is null
-            ? null
-            : new StoredRefreshToken(row.TokenHash, row.UserId, new DateTimeOffset(row.CreatedAt), new DateTimeOffset(row.ExpiresAt));
-    }
+            return row is null
+                ? null
+                : new StoredRefreshToken(row.TokenHash, row.UserId, new DateTimeOffset(row.CreatedAt), new DateTimeOffset(row.ExpiresAt));
+        }, ct);
 
-    public async Task<bool> TryReplaceAsync(byte[] oldTokenHash, StoredRefreshToken replacement, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+    public Task<bool> TryReplaceAsync(byte[] oldTokenHash, StoredRefreshToken replacement, CancellationToken ct = default) =>
+        database.RunAsync(async connection =>
+        {
+            await using var transaction = await connection.BeginTransactionAsync(ct);
 
-        // The DELETE is the check: of two requests using the same token at once, PostgreSQL lets
-        // only one delete the row. The other waits for the row lock, then deletes nothing.
-        var deleted = await connection.ExecuteAsync(new CommandDefinition(
-            DeleteSql, new { TokenHash = oldTokenHash }, transaction, cancellationToken: ct));
-        if (deleted == 0)
-            return false;
+            // The DELETE is the check: of two requests using the same token at once, PostgreSQL lets
+            // only one delete the row. The other waits for the row lock, then deletes nothing.
+            var deleted = await connection.ExecuteAsync(new CommandDefinition(
+                DeleteSql, new { TokenHash = oldTokenHash }, transaction, cancellationToken: ct));
+            if (deleted == 0)
+                return false;
 
-        await connection.ExecuteAsync(new CommandDefinition(InsertSql, replacement, transaction, cancellationToken: ct));
-        await transaction.CommitAsync(ct);
-        return true;
-    }
+            await connection.ExecuteAsync(new CommandDefinition(InsertSql, replacement, transaction, cancellationToken: ct));
+            await transaction.CommitAsync(ct);
+            return true;
+        }, ct);
 
-    public async Task DeleteAsync(byte[] tokenHash, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        await connection.ExecuteAsync(new CommandDefinition(DeleteSql, new { TokenHash = tokenHash }, cancellationToken: ct));
-    }
+    public Task DeleteAsync(byte[] tokenHash, CancellationToken ct = default) =>
+        database.RunAsync(connection =>
+            connection.ExecuteAsync(new CommandDefinition(DeleteSql, new { TokenHash = tokenHash }, cancellationToken: ct)), ct);
 
-    public async Task<int> DeleteExpiredAsync(DateTimeOffset now, CancellationToken ct = default)
-    {
-        await using var connection = await database.OpenConnectionAsync(ct);
-        return await connection.ExecuteAsync(new CommandDefinition(DeleteExpiredSql, new { Now = now }, cancellationToken: ct));
-    }
+    public Task<int> DeleteExpiredAsync(DateTimeOffset now, CancellationToken ct = default) =>
+        database.RunAsync(connection =>
+            connection.ExecuteAsync(new CommandDefinition(DeleteExpiredSql, new { Now = now }, cancellationToken: ct)), ct);
 }

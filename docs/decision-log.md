@@ -1591,3 +1591,34 @@ written to the old primary. Automatic promotion with a consensus (Patroni, or a 
 would avoid both, at the cost of another moving part. Getting the rewind to work after a crash needed two
 fixes in `node.sh`: removing the killed server's stale lock file, and running its crash recovery with
 `wal_log_hints=on`.
+
+## D-071: Repeat a database call once when PostgreSQL ended the connection
+
+- **Date:** 2026-11-26
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** After PostgreSQL restarts, the idle connections in each service's pool are dead, but a service
+only finds out by using one. In the lab, the first login, send or list after every restart answered `500`.
+With several hosts listed (D-070), the failure also marked the server as down for `Host Recheck Seconds`,
+so an immediate retry found no server at all.
+
+**Decision:**
+
+- Message service: EF Core's `NpgsqlRetryingExecutionStrategy`, at most 3 retries and 1 s apart, in a
+  small subclass (`RetryingExecutionStrategy`). Safe because every write is idempotent (D-023) and there
+  are no explicit transactions. The service now builds its own `NpgsqlDataSource`s instead of passing
+  connection strings, so the strategy can reach them.
+- Identity: `IdentityDatabase.RunAsync` runs each repository call and, on a transient `NpgsqlException`,
+  runs it once more on a new connection. Npgsql empties the pool when it meets a dead connection, so one
+  retry is enough.
+- Before retrying, both call `NpgsqlMultiHostDataSource.ClearDatabaseStates()`, so the server that just
+  failed is tried again. Setting `Host Recheck Seconds=0` instead also worked, but doubled every request's
+  time from the US and Asia, because each pooled connection was checked again.
+
+**Consequences:** Restarting the primary or a replica no longer fails any request in the lab. A dead
+connection fails on its first command, before anything is stored. If the server instead crashed after
+committing but before answering, the retry runs the statement again: a registration would then say the
+email is taken, and a refresh would end the session. Component tests end the app's connections with
+`pg_terminate_backend`. The multi-host test fails without `ClearDatabaseStates` for the Message service,
+but not for Identity, where only the lab showed the problem.

@@ -80,6 +80,9 @@ The service also listens to RabbitMQ: when Identity publishes `UserLoggedIn`, it
 "Привет, user@example.com!" to the chat. The event's id becomes the message id, so a redelivered
 event doesn't greet twice.
 
+If PostgreSQL restarted, the first query over a pooled connection fails; it's repeated on a new one
+(D-071). The same goes for Identity.
+
 Sending is idempotent. The client picks the message id (a `Guid`):
 
 - **New id:** creates the message, returns `201 Created`.
@@ -228,6 +231,7 @@ dotnet test Pingo.slnx
 | `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
 | `MessagesTracingTests` | Real PostgreSQL in Docker, MassTransit test harness | The consumer continues the publisher's trace, with the greeting's `INSERT` under its span |
 | `MessagesReplicaTests` | EF Core in-memory, a second database as a lagging replica | Lists read the replica, sends look ids up on the primary, the read-only context refuses to save |
+| `MessagesDatabaseRestartTests` | Real PostgreSQL in Docker | Listing and sending right after the server ended every connection, with one host and with two listed |
 | `MessagesHealthTests` | EF Core in-memory | `/health` without a token, with a failing dependency, and not traced |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |
@@ -256,6 +260,7 @@ dotnet test Pingo.slnx
 | `TracingTests` | A login is one trace: the HTTP span contains the PostgreSQL spans and the `UserLoggedIn` publish; a failed login publishes nothing |
 | `RefreshCookieTests` | Cookie attributes, no token in the body, missing, invalid and overlong cookies, logout, CORS with credentials, a browser-like cookie jar |
 | `RefreshTokenCleanupTests` | Expired tokens deleted and valid ones kept, the exact expiry boundary, the daily Hangfire schedule, a run triggered through Hangfire, the `expires_at` index |
+| `DatabaseRestartTests` | Login, refresh and registration right after the server ended every connection, also with two hosts listed |
 | `HealthTests` | `/health` answers |
 | `StartupAndErrorTests` | Invalid JWT settings stop startup, an unhandled exception returns a 500 problem without details |
 
