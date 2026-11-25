@@ -86,6 +86,9 @@ Sending is idempotent. The client picks the message id (a `Guid`):
 - **Existing id, new text:** updates the text and `updatedAt`, returns `200 OK`.
 - **Existing id, same text:** changes nothing, returns `200 OK`. Retrying a request is always safe.
 
+Lists can come from a read replica (`ConnectionStrings:MessagesRead`; without it, everything uses the
+primary). Sending always uses the primary (D-068).
+
 Messages are stored in PostgreSQL. The schema is managed with EF Core migrations, which the API
 applies automatically on startup. Example requests are in `Pingo.Messages.Api.http`.
 
@@ -98,7 +101,7 @@ dotnet tool restore
 ```
 
 ```bash
-dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --output-dir Data/Migrations
+dotnet ef migrations add <MigrationName> --project Services/Message/Pingo.Messages --startup-project Services/Message/Pingo.Messages.Api --context MessageDbContext --output-dir Data/Migrations
 ```
 
 ## Identity service
@@ -217,6 +220,7 @@ dotnet test Pingo.slnx
 | `MessagesCorsTests` | EF Core in-memory | CORS headers for the frontend's origin and for unknown origins, preflights without a token, CORS headers on a 401 |
 | `MessagesUserLoggedInTests` | EF Core in-memory, MassTransit test harness | Greeting posted for a `UserLoggedIn` event, a redelivered event greets once, two logins greet twice |
 | `MessagesTracingTests` | Real PostgreSQL in Docker, MassTransit test harness | The consumer continues the publisher's trace, with the greeting's `INSERT` under its span |
+| `MessagesReplicaTests` | EF Core in-memory, a second database as a lagging replica | Lists read the replica, sends look ids up on the primary, the read-only context refuses to save |
 | `MessagesHealthTests` | EF Core in-memory | `/health` without a token, with a failing dependency, and not traced |
 | `MessagesAuthorizationTests` | EF Core in-memory | Valid token accepted; missing, expired, wrongly signed, wrong issuer or audience, unsigned and malformed tokens rejected |
 | `MessagesConcurrencyTests` | Real PostgreSQL in Docker (Testcontainers) | Simultaneous creates and edits of the same message, migrations |

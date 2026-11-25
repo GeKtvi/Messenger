@@ -28,6 +28,20 @@ x-messages: &messages
     dockerfile: Services/Message/Pingo.Messages.Api/Dockerfile
   depends_on: *api-depends-on
 
+x-replica: &replica
+  image: postgres:17
+  user: postgres
+  command: ["sh", "/etc/pingo/replica.sh"]
+  depends_on:
+    postgres: { condition: service_healthy }
+    wan-setup: { condition: service_completed_successfully }
+  healthcheck: &postgres-healthcheck
+    # Over TCP: while the image sets up the database, it listens only on a Unix socket.
+    test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U messenger -d messenger_messages"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
 x-api-environment: &api-environment
   Jwt__SigningKey: pingo-lab-signing-key-never-use-in-production
   OpenTelemetry__OtlpEndpoint: http://jaeger:4317
@@ -61,11 +75,26 @@ services:
 
   messages-eu:
     <<: *messages
+    depends_on:
+      <<: *api-depends-on
+      postgres-eu: { condition: service_healthy }
+    dns_opt: ["timeout:1", "attempts:1"]
     environment:
       <<: *api-environment
       OTEL_RESOURCE_ATTRIBUTES: cloud.region=eu
       ConnectionStrings__Messages: "Host=postgres;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
       ConnectionStrings__RabbitMq: amqp://guest:guest@rabbitmq:5672/
+      # The replica while it runs, otherwise the primary.
+      ConnectionStrings__MessagesRead: "Host=postgres-eu,postgres;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=prefer-standby;Timeout=3"
+
+  postgres-eu:
+    <<: *replica
+    environment:
+      PRIMARY_HOST: postgres
+      PGPASSWORD: messenger
+    volumes:
+      - postgres-eu-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
 
   # ---- US ------------------------------------------------------------------------------------------
   edge-us:
@@ -94,11 +123,26 @@ services:
 
   messages-us:
     <<: *messages
+    depends_on:
+      <<: *api-depends-on
+      postgres-us: { condition: service_healthy }
+    dns_opt: ["timeout:1", "attempts:1"]
     environment:
       <<: *api-environment
       OTEL_RESOURCE_ATTRIBUTES: cloud.region=us
       ConnectionStrings__Messages: "Host=wan-us;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
       ConnectionStrings__RabbitMq: amqp://guest:guest@wan-us:5672/
+      # The replica while it runs, otherwise the primary.
+      ConnectionStrings__MessagesRead: "Host=postgres-us,wan-us;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=prefer-standby;Timeout=3"
+
+  postgres-us:
+    <<: *replica
+    environment:
+      PRIMARY_HOST: wan-us
+      PGPASSWORD: messenger
+    volumes:
+      - postgres-us-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
 
   # ---- Asia ----------------------------------------------------------------------------------------
   edge-asia:
@@ -127,11 +171,26 @@ services:
 
   messages-asia:
     <<: *messages
+    depends_on:
+      <<: *api-depends-on
+      postgres-asia: { condition: service_healthy }
+    dns_opt: ["timeout:1", "attempts:1"]
     environment:
       <<: *api-environment
       OTEL_RESOURCE_ATTRIBUTES: cloud.region=asia
       ConnectionStrings__Messages: "Host=wan-asia;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable"
       ConnectionStrings__RabbitMq: amqp://guest:guest@wan-asia:5672/
+      # The replica while it runs, otherwise the primary.
+      ConnectionStrings__MessagesRead: "Host=postgres-asia,wan-asia;Database=messenger_messages;Username=messenger;Password=messenger;GSS Encryption Mode=Disable;Target Session Attributes=prefer-standby;Timeout=3"
+
+  postgres-asia:
+    <<: *replica
+    environment:
+      PRIMARY_HOST: wan-asia
+      PGPASSWORD: messenger
+    volumes:
+      - postgres-asia-data:/var/lib/postgresql/data
+      - ./postgres:/etc/pingo:ro
 
   # ---- The distance between the regions ------------------------------------------------------------
   wan-eu: &wan
@@ -166,14 +225,12 @@ services:
       POSTGRES_DB: messenger_messages
       POSTGRES_USER: messenger
       POSTGRES_PASSWORD: messenger
+    # wal_keep_size: how far a stopped replica may fall behind and still catch up.
+    command: ["postgres", "-c", "hba_file=/etc/pingo/pg_hba.conf", "-c", "wal_keep_size=256MB"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      # Over TCP: while the image sets up the database, it listens only on a Unix socket.
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U messenger -d messenger_messages"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
+      - ./postgres:/etc/pingo:ro
+    healthcheck: *postgres-healthcheck
 
   redis:
     image: redis:8
@@ -199,3 +256,6 @@ services:
 
 volumes:
   postgres-data:
+  postgres-eu-data:
+  postgres-us-data:
+  postgres-asia-data:

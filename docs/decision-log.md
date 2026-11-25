@@ -1496,3 +1496,35 @@ containers and data stay in use.
 browser in that gap got two `502`s and then a `201` from the frontend's retries, with the same id. A
 dead PostgreSQL still fails every region. Turning the checks off, or reversing the region order, made
 most of the failover tests fail.
+
+## D-068: Message lists always from read replicas, writes always to the primary
+
+- **Date:** 2026-11-25
+- **Stage:** Multi-region lab (not a homework stage)
+- **Status:** Accepted
+
+**Context:** In the lab, the US and Asia make a long trip to the EU's PostgreSQL for every query (D-065),
+and the primary serves every region's reads.
+
+**Decision:**
+
+- PostgreSQL streaming replication, asynchronous, with one replica per region, the EU included so that
+  every Message API works the same way. Each copies the primary with `pg_basebackup` on first start
+  and then follows it, logging in as the lab's own superuser.
+- `GetAllAsync` reads through `ReadOnlyMessageDbContext` on `ConnectionStrings:MessagesRead`; without
+  that setting it uses the primary. It and `MessageDbContext` are siblings under the abstract
+  `MessageDbContextBase`, which holds only the table mapping. So the read side inherits nothing to write
+  with: it exposes an untracked `IQueryable` instead of a `DbSet`, and saving throws.
+- `SendAsync` uses only the primary, including its lookup, and so does all of Identity: login and
+  single-use refresh tokens can't work on old data.
+- Npgsql gets both hosts with `Target Session Attributes=prefer-standby`, so reads use the primary
+  while the replica is down.
+- No exceptions for users who have just written: an earlier version sent their reads to the primary
+  for 5 s, marked by a cookie, and was dropped because it leaked the storage design to the browser.
+  Replica lag is handled in the frontend instead (D-069).
+
+**Consequences:** Listing from Asia takes 5 to 20 ms instead of 210 ms; sending is unchanged. With the
+primary down, every region can still list messages. Lists may be a little old. `dotnet ef` now
+needs `--context MessageDbContext`.
+Tests use a second in-memory database as a replica that never catches up; replication itself was
+checked in the lab.

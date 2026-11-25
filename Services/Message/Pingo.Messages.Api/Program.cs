@@ -12,7 +12,9 @@ builder.AddPingoHealth();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-builder.Services.AddMessages(builder.Configuration.GetConnectionString("Messages"));
+builder.Services.AddMessages(
+    builder.Configuration.GetConnectionString("Messages"),
+    builder.Configuration.GetConnectionString("MessagesRead"));
 builder.Services.AddPingoJwtAuthentication(builder.Configuration.GetSection(JwtValidationOptions.SectionName));
 builder.Services.AddPingoMessaging(builder.Configuration.GetConnectionString("RabbitMq"));
 

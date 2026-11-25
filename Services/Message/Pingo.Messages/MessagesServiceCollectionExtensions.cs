@@ -7,11 +7,15 @@ namespace Pingo.Messages;
 
 public static class MessagesServiceCollectionExtensions
 {
-    public static IServiceCollection AddMessages(this IServiceCollection services, string? connectionString)
+    // readConnectionString points at a read replica. Without it, everything uses the primary.
+    public static IServiceCollection AddMessages(
+        this IServiceCollection services, string? connectionString, string? readConnectionString = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
         services.AddDbContext<MessageDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<ReadOnlyMessageDbContext>(options => options.UseNpgsql(
+            string.IsNullOrWhiteSpace(readConnectionString) ? connectionString : readConnectionString));
         services.AddScoped<IMessageService, MessageService>();
         services.TryAddSingleton(TimeProvider.System);
 

@@ -1,7 +1,8 @@
 # Multi-region lab
 
-Pingo in three pretend regions behind reverse proxies in Docker, sharing one database in the EU. It has
-its own containers and data and doesn't touch the development `docker-compose.yml`.
+Pingo in three pretend regions behind reverse proxies in Docker, sharing one primary database in
+the EU, with a read replica in every region. It has its own containers and data and doesn't touch the
+development `docker-compose.yml`.
 
 ```
 user in   EU               US               Asia
@@ -14,6 +15,10 @@ user in   EU               US               Asia
             │                │ 90 ms          │ 200 ms      Toxiproxy (wan-us, wan-asia)
             └────────────────┴────────────────┘
               postgres, redis, rabbitmq (in the EU)
+
+Each region's Message API lists messages from the replica next to it (postgres-eu, postgres-us,
+postgres-asia). The replicas follow postgres, the US and Asian ones through the same delays. Everything
+else goes to postgres.
 ```
 
 The delays are per round trip and set in `wan-setup.sh`: EU–US 90 ms, EU–Asia 200 ms, US–Asia 150 ms.
@@ -72,7 +77,8 @@ python deploy/multi-region/measure.py
 
 With one database, the nearest region is never faster. Listing is one query, so one long trip either
 way. Sending is two queries and logging in is more, and from a nearby API each of them is a long
-trip, while one trip to the EU covers the whole request. (The numbers are from one run and vary a bit.)
+trip, while one trip to the EU covers the whole request. (The numbers are from one run, before the
+read replicas, and vary a bit.)
 
 ## Experiment: failover
 
@@ -100,7 +106,39 @@ docker compose -f deploy/multi-region/docker-compose.yml start messages-asia
 The frontend retries Message API calls, so a message sent during the gap still arrives, just later.
 Identity calls aren't retried, so a login during its gap fails and has to be repeated.
 
+## Experiment: read replicas
+
+`python deploy/multi-region/measure.py`, nearest-region routing:
+
+| User in | List messages, without a replica | With a replica | Send message (unchanged) |
+|---|---|---|---|
+| EU | 5 to 30 ms | 5 to 20 ms | 8 ms |
+| US | 101 ms | 5 to 20 ms | 195 ms |
+| Asia | 210 ms | 5 to 20 ms | 415 ms |
+
+Only reading from far away gets faster. The EU's replica takes reads off the primary and keeps them
+working without it. A replica refuses writes, so sending still makes two trips to the EU.
+
+**Lag.** Replicas follow the primary with a delay. Stop Asia's replica from following:
+
+```bash
+docker compose -f deploy/multi-region/docker-compose.yml exec postgres-asia psql -U messenger -d messenger_messages -c "select pg_wal_replay_pause()"
+```
+
+Send a message on http://localhost:8003 and reload: it's still there, although the list no longer
+contains it. The frontend keeps its own sent messages until a list does (D-069). Open the same chat in a
+private window, as another user, and the message is missing until `pg_wal_replay_resume()`.
+
+| What stops | Result |
+|---|---|
+| `postgres-asia` | Asia's list comes from the primary again, after at most a failed request or two |
+| `postgres` (the primary) | Every region can still list messages. Sending and logging in fail |
+
 ## Good to know
+
+- The first request over a database connection that a PostgreSQL restart has cut answers `500`; the next
+  one works. The frontend retries that for messages, but not for login or restoring the session, which
+  then shows the login form.
 
 - The browser talks to one origin, so there are no CORS preflights, and the `SameSite=Strict` refresh
   cookie simply works.
